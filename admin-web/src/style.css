@@ -1,0 +1,12 @@
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+:root {
+  --el-menu-hover-text-color: #FFB800;
+  --el-menu-hover-bg-color: #f59e0b33;
+  --el-menu-active-color: #FFB800;
+  --el-menu-active-bg-color: #f59e0b1a;
+}

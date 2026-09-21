@@ -1,0 +1,71 @@
+/* ============================================================
+ * 统一列表页布局样式（单一来源）
+ * 所有列表/详情页共用的页面容器、筛选操作栏、内容卡片、表格样式。
+ * 各 view 中与之重名的 scoped 样式可删除，避免漂移。
+ * ============================================================ */
+
+/* 页面容器：去除默认内边距，由内部卡片自行控制间距 */
+.page-container {
+  padding: 0;
+}
+
+/* 筛选 / 操作栏卡片 */
+.filter-card {
+  margin-bottom: 16px;
+  background-color: var(--bg-color-card);
+  border: 1px solid var(--border-color-base);
+  border-radius: var(--border-radius-base);
+}
+
+/* 筛选栏：筛选条件与操作按钮统一左对齐，可换行 */
+.filter-header {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* 左侧：筛选条件 + 搜索 + 刷新 */
+.left-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* 右侧：主操作（新增 / 发送 / 解析验证 等） */
+.right-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+/* 内容卡片 */
+.content-area {
+  background-color: var(--bg-color-card);
+  border: 1px solid var(--border-color-base);
+  border-radius: var(--border-radius-base);
+  padding: 20px;
+}
+
+/* 表格：去除默认白底，贴合暗色主题 */
+.data-table {
+  background-color: transparent;
+}
+
+/* 区块标题（替代手写 inline <h2>） */
+.page-section-title {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-color-primary);
+}
+
+/* 图标按钮统一提示：hover 显示手型与轻微反馈 */
+.icon-btn {
+  cursor: pointer;
+}

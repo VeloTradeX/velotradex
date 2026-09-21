@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "parser": "MansoorParser",
+    "source": "examples/mansoor.json",
+    "parsedAt": "2026-02-08T02:16:44.000Z",
+    "textOnly": false,
+    "note": "本文件中的全部信号均为人工虚构，仅用于演示，非真实交易信号。"
+  },
+  "signals": [
+    {
+      "id": 1,
+      "timestamp": "2025-10-14T03:28:11.000000+00:00",
+      "symbol": "XAU_USDT",
+      "side": "buy",
+      "entryPrice": null,
+      "entries": [],
+      "tps": [
+        2350
+      ],
+      "sl": 2280,
+      "sourceType": "text",
+      "rawMessage": "【虚构信号 · FICTIONAL SIGNAL — 仅用于演示，非真实交易信号】\nBUY XAUUSD\n\nSL : 2280.00\n\nTP : 2350.00",
+      "backtest": null
+    },
+    {
+      "id": 2,
+      "timestamp": "2025-12-22T18:49:33.000000+00:00",
+      "symbol": "XAU_USDT",
+      "side": "sell",
+      "entryPrice": null,
+      "entries": [],
+      "tps": [
+        2330
+      ],
+      "sl": 2400,
+      "sourceType": "text",
+      "rawMessage": "【虚构信号 · FICTIONAL SIGNAL — 仅用于演示，非真实交易信号】\nSELL XAUUSD\n\nSL : 2400.00\n\nTP : 2330.00",
+      "backtest": null
+    }
+  ]
+}

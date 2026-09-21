@@ -1,0 +1,223 @@
+:root {
+  /* 基础背景色 */
+  --bg-color-base: #0D0D0F;
+  /* 卡片/容器背景 */
+  --bg-color-card: #18191B;
+  /* 侧边栏背景 */
+  --bg-color-sidebar: #131416;
+  
+  /* 品牌主色 (渐变) */
+  --color-primary-start: #FFB800;
+  --color-primary-end: #FF9900;
+  
+  /* 语义色 */
+  --color-success: #26A69A;
+  --color-danger: #EF5350;
+  --color-warning: #FFB800;
+  
+  /* 文字颜色 */
+  --text-color-primary: #FFFFFF;
+  --text-color-secondary: #8E8E93;
+  --text-color-placeholder: #5A5A5E;
+  
+  /* 边框 */
+  --border-color-base: rgba(255, 255, 255, 0.05);
+  
+  /* 组件 */
+  --border-radius-base: 16px;
+  --border-radius-small: 8px;
+}
+
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  background-color: var(--bg-color-base);
+  color: var(--text-color-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* 覆盖 Element Plus 默认样式以适配暗色主题 */
+
+/* 在这里覆盖 Element Plus 的全局变量 */
+html {
+  /* 统一主色 (Primary Color) */
+  --el-color-primary: var(--color-primary-start);
+  --el-color-primary-light-3: rgba(255, 184, 0, 0.7);
+  --el-color-primary-light-5: rgba(255, 184, 0, 0.5);
+  --el-color-primary-light-7: rgba(255, 184, 0, 0.3);
+  --el-color-primary-light-8: rgba(255, 184, 0, 0.2);
+  --el-color-primary-light-9: rgba(255, 184, 0, 0.1);
+  --el-color-primary-dark-2: var(--color-primary-end);
+
+  /* 基础文本色 */
+  --el-text-color-primary: var(--text-color-primary);
+  --el-text-color-regular: var(--text-color-primary);
+  --el-text-color-secondary: var(--text-color-secondary);
+  --el-text-color-placeholder: var(--text-color-placeholder);
+  
+  /* 背景色 */
+  --el-bg-color: var(--bg-color-card);
+  --el-bg-color-overlay: var(--bg-color-card);
+  --el-fill-color-blank: var(--bg-color-base);
+  --el-fill-color: rgba(255, 255, 255, 0.05);
+  --el-fill-color-light: rgba(255, 255, 255, 0.03);
+  --el-fill-color-lighter: rgba(255, 255, 255, 0.02);
+  --el-border-color: var(--border-color-base);
+  --el-border-color-light: rgba(255, 255, 255, 0.05);
+  --el-border-color-lighter: rgba(255, 255, 255, 0.03);
+}
+
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  background-color: var(--bg-color-base);
+  color: var(--text-color-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* 覆盖 Element Plus 默认样式以适配暗色主题 */
+.el-card {
+  background-color: var(--bg-color-card);
+  border: 1px solid var(--border-color-base);
+  border-radius: var(--border-radius-base);
+  color: var(--text-color-primary);
+  --el-card-bg-color: var(--bg-color-card);
+  --el-card-border-color: var(--border-color-base);
+}
+
+.el-table {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: var(--bg-color-card);
+  --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.08); /* 修复 Hover 高亮过白 */
+  --el-table-border-color: var(--border-color-base);
+  --el-table-text-color: var(--text-color-primary);
+  --el-table-header-text-color: var(--text-color-secondary);
+  background-color: transparent !important;
+  color: var(--text-color-primary);
+}
+
+.el-table th.el-table__cell {
+  background-color: rgba(255, 255, 255, 0.02) !important;
+}
+
+/* 修复表格内展开行/选中行背景色 */
+.el-table__expanded-cell {
+  background-color: transparent !important;
+}
+
+/* 修复 Dropdown/Select Popper 样式 */
+.el-popper {
+  background-color: var(--bg-color-card) !important;
+  border: 1px solid var(--border-color-base) !important;
+}
+
+.el-popper__arrow::before {
+  background-color: var(--bg-color-card) !important;
+  border: 1px solid var(--border-color-base) !important;
+}
+
+.el-select-dropdown__item {
+  color: var(--text-color-primary);
+}
+
+.el-select-dropdown__item.is-selected {
+  color: var(--color-primary-start);
+  background-color: rgba(255, 184, 0, 0.1);
+}
+
+.el-select-dropdown__item.is-hovering {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.el-input__wrapper, .el-select__wrapper {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  box-shadow: none !important;
+  border: 1px solid var(--border-color-base);
+}
+
+.el-input__wrapper.is-focus, .el-select__wrapper.is-focus {
+  border-color: var(--color-primary-start) !important;
+}
+
+.el-input__inner {
+  color: var(--text-color-primary) !important;
+}
+
+/* 修复 Checkbox */
+.el-checkbox {
+  --el-checkbox-text-color: var(--text-color-primary);
+  --el-checkbox-checked-text-color: var(--color-primary-start);
+  --el-checkbox-checked-bg-color: var(--color-primary-start);
+  --el-checkbox-input-border-color-hover: var(--color-primary-start);
+}
+
+.el-checkbox__inner {
+  background-color: transparent;
+  border-color: var(--text-color-secondary);
+}
+
+.el-checkbox__input.is-checked .el-checkbox__inner {
+  background-color: var(--color-primary-start);
+  border-color: var(--color-primary-start);
+}
+
+.el-checkbox__input.is-checked .el-checkbox__inner::after {
+  border-color: #000; /* 勾选图标颜色为黑色 */
+}
+
+/* 主按钮样式 */
+.el-button--primary {
+  background: linear-gradient(90deg, var(--color-primary-start), var(--color-primary-end)) !important;
+  border: none !important;
+  color: #000000 !important;
+  font-weight: 600;
+  box-shadow: 0 4px 15px rgba(255, 184, 0, 0.2);
+  transition: all 0.3s;
+}
+
+.el-button--primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(255, 184, 0, 0.3);
+}
+
+/* 标签样式 */
+.el-tag--success {
+  --el-tag-bg-color: rgba(38, 166, 154, 0.1);
+  --el-tag-border-color: rgba(38, 166, 154, 0.2);
+  --el-tag-text-color: var(--color-success);
+}
+
+.el-tag--danger {
+  --el-tag-bg-color: rgba(239, 83, 80, 0.1);
+  --el-tag-border-color: rgba(239, 83, 80, 0.2);
+  --el-tag-text-color: var(--color-danger);
+}
+
+/* 对话框样式 */
+.el-dialog {
+  background-color: var(--bg-color-card);
+  --el-dialog-bg-color: var(--bg-color-card);
+  border: 1px solid var(--border-color-base);
+  border-radius: var(--border-radius-base);
+}
+
+.el-dialog__title {
+  color: var(--text-color-primary);
+}
+
+/* 分页样式 */
+.el-pagination {
+  --el-pagination-bg-color: transparent;
+  --el-pagination-text-color: var(--text-color-secondary);
+  --el-pagination-button-bg-color: rgba(255, 255, 255, 0.05);
+}
+
+.el-pagination.is-background .el-pager li:not(.is-disabled).is-active {
+  background-color: var(--color-primary-start);
+  color: #000;
+}

@@ -1,0 +1,11 @@
+{
+  "symbol": "BTC_USDT",
+  "side": "sell",
+  "amount": "100",
+  "price": "70563",
+  "type": "limit",
+  "triggerPrice": "79000",
+  "triggerCondition": "ge",
+  "takeProfit": "78000",
+  "stopLoss": "81000"
+}

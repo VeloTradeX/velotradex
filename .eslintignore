@@ -1,0 +1,7 @@
+node_modules
+dist
+coverage
+tests/e2e
+admin-web
+tools/lighter-signer
+**/*.d.ts

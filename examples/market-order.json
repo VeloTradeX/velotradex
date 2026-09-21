@@ -1,0 +1,9 @@
+{
+  "symbol": "BTC_USDT",
+  "side": "buy",
+  "amount": "100",
+  "type": "market",
+  "leverage": "0",
+  "takeProfit": "92000",
+  "stopLoss": "75000"
+}

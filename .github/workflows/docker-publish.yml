@@ -1,0 +1,226 @@
+# =============================================================================
+# 构建并发布 velotradex 全栈镜像（后端 + admin-web 管理面板）
+#
+# 为什么要有这个工作流：
+#   本仓库在本地/国内网络下构建镜像会遇到 Debian 源慢、npm 源慢、构建耗时长、
+#   机器磁盘不足等问题。把构建搬到 GitHub Actions 上以后：
+#     - 任何能访问 ghcr.io 的机器都可以 `docker pull` 直接拿到成品镜像；
+#     - 维护者也不必再在本地完整构建。
+#
+# 产物：
+#   1) GHCR 多架构镜像  ghcr.io/<owner>/velotradex
+#      - push main        → :latest, :main, :sha-xxxxxxx
+#      - push tag v1.2.3  → :1.2.3, :1.2, :sha-xxxxxxx
+#      - 平台：linux/amd64 + linux/arm64
+#   2) tag 触发时额外产出离线包（不依赖任何镜像仓库，适合无法访问 ghcr.io 的环境）
+#      velotradex-<tag>-linux-amd64.tar.zst.part-*  + load.sh + SHA256SUMS.txt
+#      用法：cat *.part-* | zstd -d | docker load   或直接 ./load.sh
+#
+# 说明：GHCR 包默认是私有可见性，匿名 `docker pull` 会 401。本项目的包已手动设为 Public；
+# 若日后新建包需要公开，去包设置页改成 Public：
+#   包页面  https://github.com/<owner>/<repo>/pkgs/container/<package>
+#   设置页  → Package settings → Danger Zone → Change visibility → Public
+# =============================================================================
+
+name: Build & Publish Docker Image
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 多架构镜像 → GHCR，供 `docker pull` 直接使用
+  # ---------------------------------------------------------------------------
+  image:
+    name: Build multi-arch image → GHCR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR 的镜像名必须全小写，而仓库 owner 可能含大写（VeloTradeX）
+      - name: Resolve image name
+        id: prep
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata (tags & labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.prep.outputs.image }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            # 同时推一份带 v 前缀的 tag（v1.2.3）：与 git tag / Release 名一致，
+            # 避免使用者在 GHCR 与离线包之间混用 `1.0.0` / `v1.0.0` 时踩 manifest unknown。
+            type=semver,pattern=v{{version}}
+            type=sha,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Job summary
+        run: |
+          {
+            echo "### velotradex 镜像已推送 :rocket:"
+            echo ""
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo ""
+            echo "拉取：\`docker pull ${{ steps.prep.outputs.image }}:latest\`"
+            echo ""
+            echo "如果匿名拉取失败，请把该 Package 的可见性改为 Public（Settings → Package visibility）。"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # 离线 tar 包 → GitHub Release（不依赖任何镜像仓库）
+  # 仅在打 v* tag 时执行，避免普通 push 也跑一次 10 分钟的导出。
+  # ---------------------------------------------------------------------------
+  tarball:
+    name: Build offline tarball → Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (linux/amd64, local)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: velotradex:${{ github.ref_name }}
+          cache-from: type=gha
+
+      - name: Export, compress and split
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          # 注意：split 的分片必须能被 `cat` 按文件名顺序拼回，
+          # 因此用固定长度前缀 + split 默认的 2 位字母后缀（part-aa, part-ab, ...）
+          docker save "velotradex:${TAG}" \
+            | zstd -19 -T0 -o "out/velotradex-${TAG}-linux-amd64.tar.zst"
+          split -b 1900M \
+            "out/velotradex-${TAG}-linux-amd64.tar.zst" \
+            "out/velotradex-${TAG}-linux-amd64.tar.zst.part-"
+          rm -f "out/velotradex-${TAG}-linux-amd64.tar.zst"
+          ls -lh out
+
+      - name: Write loader script
+        run: |
+          set -euo pipefail
+          cat > out/load.sh <<EOF
+          #!/usr/bin/env bash
+          # 离线载入 velotradex ${TAG}（linux/amd64）。
+          #
+          # 用法：bash load.sh
+          #   注意：GitHub Release 附件**不保留可执行位**，所以请用 bash 调用；
+          #   也可以先执行 chmod +x load.sh，再执行 ./load.sh。
+          # 依赖：docker、zstd（apt install zstd / brew install zstd）
+          set -euo pipefail
+          cd "\$(dirname "\$0")"
+
+          command -v docker >/dev/null || { echo "错误：未找到 docker" >&2; exit 1; }
+          command -v zstd   >/dev/null || { echo "错误：未找到 zstd（apt install zstd / brew install zstd）" >&2; exit 1; }
+
+          echo "==> 合并分片并解压 velotradex:${TAG} ..."
+          cat "velotradex-${TAG}-linux-amd64.tar.zst.part-"* | zstd -d | docker load
+
+          echo "==> 完成。镜像：velotradex:${TAG}"
+          echo
+          echo "下一步（二选一）："
+          echo "  A. 用 compose 启动（推荐：自动跑数据库迁移 + 拉起 Redis）"
+          echo "       VTX_IMAGE=velotradex VTX_TAG=${TAG} docker compose -f docker-compose.release.yml up -d"
+          echo "     管理面板 http://<host>:3000/velotradex/"
+          echo "  B. 只跑单容器（需自备 Redis）"
+          echo "       docker run -d --name velotradex --env-file .env -p 3000:3000 -v \"\$PWD/data:/app/data\" velotradex:${TAG}"
+          EOF
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd out
+          sha256sum velotradex-* load.sh > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # 幂等发布：先删掉同 tag 已存在的 Release（包括"tag 被删后残留的孤儿 Release"——
+          # 这种情况下 gh release view 能查到但 gh release upload 会失败，导致附件丢失），
+          # 再全新创建。--cleanup-tag=false 保证 git tag 本身不被删。
+          ids=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+                 --jq ".[] | select(.tag_name==\"${TAG}\") | .id")
+          for id in $ids; do
+            echo "删除已存在的 Release id=$id（tag=${TAG}）"
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/${id}"
+          done
+
+          gh release create "$TAG" out/* \
+            --title "velotradex $TAG" \
+            --notes "预构建镜像（linux/amd64）离线包与校验和。
+
+          镜像内已包含后端与 admin-web 管理面板。
+
+          用法（GitHub 附件不保留可执行位，请用 bash 调用）：
+            bash load.sh
+
+            然后：
+            VTX_IMAGE=velotradex VTX_TAG=${TAG} docker compose -f docker-compose.release.yml up -d
+            管理面板：http://<host>:3000/velotradex/
+
+          - \`velotradex-${TAG}-linux-amd64.tar.zst.part-*\`：镜像分片（单块 ≤ 1.9GB）
+          - \`load.sh\`：一键载入（\`cat *.part-* | zstd -d | docker load\`）
+          - \`SHA256SUMS.txt\`：校验和（\`shasum -a 256 -c SHA256SUMS.txt\`）
+
+          也可以直接使用 GHCR 镜像（已设为 Public，匿名可拉，无需登录）：
+          \`docker pull ghcr.io/${GITHUB_REPOSITORY,,}:${TAG}\`"
+
+          echo "==> 附件清单（用于确认上传成功）"
+          curl -sL "https://github.com/${GITHUB_REPOSITORY}/releases/expanded_assets/${TAG}" \
+            | grep -oE 'releases/download/[^"]+' | sed 's/^/   /' || true

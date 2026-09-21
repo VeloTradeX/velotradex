@@ -1,0 +1,8 @@
+{
+  "symbol": "BTC_USDT",
+  "side": "buy",
+  "amount": "100",
+  "price": "80000",
+  "type": "limit",
+  "postOnly": true
+}

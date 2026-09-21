@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>StatusBadge 状态徽标组件 · 效果预览</title>
+<style>
+  :root {
+    --success: #67c23a;
+    --danger: #f56c6c;
+    --warning: #e6a23c;
+    --info: #909399;
+    --primary: #ffb800;
+    --text: #303133;
+    --text-secondary: #909399;
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --border: #e4e7ed;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 32px 40px;
+  }
+  .page-title { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+  .page-sub { font-size: 13px; color: var(--text-secondary); margin-bottom: 28px; }
+  .section { margin-bottom: 30px; }
+  .section-title {
+    font-size: 14px; font-weight: 600; color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px; display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center;
+  }
+
+  /* ============ StatusBadge 组件样式（与组件一致） ============ */
+  .status-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    height: 20px; padding: 0 8px; border-radius: 999px;
+    font-size: 12px; font-weight: 500; line-height: 1;
+    white-space: nowrap; border: 1px solid transparent; vertical-align: middle;
+  }
+  .status-badge.is-small { height: 18px; padding: 0 6px; font-size: 11px; gap: 3px; }
+  .status-badge svg { width: 12px; height: 12px; flex-shrink: 0; }
+  .status-badge.is-small svg { width: 11px; height: 11px; }
+  .status-badge--success { --badge-color: var(--success); }
+  .status-badge--danger  { --badge-color: var(--danger); }
+  .status-badge--warning { --badge-color: var(--warning); }
+  .status-badge--info    { --badge-color: var(--info); }
+  .status-badge--primary { --badge-color: var(--primary); }
+  .status-badge {
+    color: var(--badge-color);
+    background-color: rgba(144,147,153,0.10);
+    background-color: color-mix(in srgb, var(--badge-color) 12%, transparent);
+    border-color: color-mix(in srgb, var(--badge-color) 26%, transparent);
+  }
+
+  /* 表格列应用示意 */
+  .demo-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .demo-table th {
+    text-align: left; padding: 10px 12px; background: #fafafa;
+    color: var(--text-secondary); font-weight: 600; border-bottom: 1px solid var(--border);
+  }
+  .demo-table td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
+  .demo-table tr:hover td { background: #fafafa; }
+  .code { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; color: var(--text-secondary); }
+  .group-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; }
+  .table-demo { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 900px) { .table-demo { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+  <div class="page-title">StatusBadge 状态徽标组件 · 效果预览</div>
+  <div class="page-sub">图标 + 语义色 + 文本 的胶囊徽标，全站表格统一使用；颜色自动适配浅色 / 深色主题</div>
+
+  <div class="section">
+    <div class="section-title">方向 · Side</div>
+    <div class="card">
+      <span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>buy</span>
+      <span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>sell</span>
+      <span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m7 13 4-4 4 4 5-5"/></svg>long</span>
+      <span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m7 11 4 4 4-4 5 5"/></svg>short</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">动作 · Action</div>
+    <div class="card">
+      <span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>open</span>
+      <span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>close</span>
+      <span class="status-badge status-badge--primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>update</span>
+      <span class="status-badge status-badge--warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>cancel</span>
+      <span class="status-badge status-badge--info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>ignore</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">状态 · Status</div>
+    <div class="card">
+      <span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10.01L9 11"/></svg>filled</span>
+      <span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10.01L9 11"/></svg>executed</span>
+      <span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l14 9-14 9V3z"/></svg>active</span>
+      <span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>connected</span>
+      <span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>failed</span>
+      <span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>canceled</span>
+      <span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>rejected</span>
+      <span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>expired</span>
+      <span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>disconnected</span>
+      <span class="status-badge status-badge--warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>open</span>
+      <span class="status-badge status-badge--warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>pending</span>
+      <span class="status-badge status-badge--warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>partial</span>
+      <span class="status-badge status-badge--info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54Z"/></svg>filtered</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">角色 / 级别 / 方法 / 模式 · Role / Level / Method / Mode</div>
+    <div class="card">
+      <span class="status-badge status-badge--primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m16 8-6 4 6 4V8z"/></svg>entry</span>
+      <span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>tp</span>
+      <span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>sl</span>
+      <span class="status-badge status-badge--warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>close</span>
+      <span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>admin</span>
+      <span class="status-badge status-badge--info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>viewer</span>
+      <span class="status-badge status-badge--info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>info</span>
+      <span class="status-badge status-badge--warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>warn</span>
+      <span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>error</span>
+      <span class="status-badge status-badge--info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>GET</span>
+      <span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>POST</span>
+      <span class="status-badge status-badge--warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>PUT</span>
+      <span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>DELETE</span>
+      <span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l14 9-14 9V3z"/></svg>启用</span>
+      <span class="status-badge status-badge--warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>仅分析</span>
+      <span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>禁用</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">HTTP 状态码 · Status Code</div>
+    <div class="card">
+      <span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10.01L9 11"/></svg>200</span>
+      <span class="status-badge status-badge--warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>301</span>
+      <span class="status-badge status-badge--warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>404</span>
+      <span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>500</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">表格列应用示意 · 实际页面效果</div>
+    <div class="table-demo">
+      <div>
+        <div class="group-label">/#/strategies · 动作 / 方向 / 状态（标杆）</div>
+        <table class="demo-table">
+          <tr><th>ID</th><th>Parser</th><th>动作</th><th>方向</th><th>状态</th></tr>
+          <tr><td>12801</td><td>AlwaysWin</td><td><span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>open</span></td><td><span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>buy</span></td><td><span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10.01L9 11"/></svg>processed</span></td></tr>
+          <tr><td>12799</td><td>Default</td><td><span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>close</span></td><td><span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>sell</span></td><td><span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>failed</span></td></tr>
+          <tr><td>12795</td><td>AlwaysWin</td><td><span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>open</span></td><td><span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m7 13 4-4 4 4 5-5"/></svg>long</span></td><td><span class="status-badge status-badge--warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>pending</span></td></tr>
+        </table>
+      </div>
+      <div>
+        <div class="group-label">/#/orders · Side / Status</div>
+        <table class="demo-table">
+          <tr><th>时间</th><th>Symbol</th><th>Side</th><th>Status</th><th>策略</th></tr>
+          <tr><td>2026-08-18 14:22:01</td><td>BTC_USDT</td><td><span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>buy</span></td><td><span class="status-badge status-badge--success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10.01L9 11"/></svg>filled</span></td><td>3021</td></tr>
+          <tr><td>2026-08-18 14:18:44</td><td>ETH_USDT</td><td><span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>sell</span></td><td><span class="status-badge status-badge--warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>open</span></td><td>3017</td></tr>
+          <tr><td>2026-08-18 13:59:02</td><td>SOL_USDT</td><td><span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>sell</span></td><td><span class="status-badge status-badge--danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>canceled</span></td><td>3012</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">用法</div>
+    <div class="card" style="font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; line-height: 1.9;">
+      <div>&lt;StatusBadge :value="row.side" kind="side" /&gt;</div>
+      <div>&lt;StatusBadge :value="row.status" kind="status" size="small" /&gt;</div>
+      <div>&lt;StatusBadge :value="row.isActive" /&gt; &nbsp;<span class="code">// boolean 自动映射 启用/禁用</span></div>
+      <div>&lt;StatusBadge :value="row.method" kind="method" /&gt;</div>
+      <div>&lt;StatusBadge :value="row.level" kind="level" /&gt;</div>
+      <div>&lt;StatusBadge :value="row.aiMode" kind="mode" /&gt;</div>
+      <div>&lt;StatusBadge :value="row.statusCode" kind="http" /&gt;</div>
+      <div>&lt;StatusBadge :value="row.type" /&gt; &nbsp;<span class="code">// 未命中时自动按关键词推断配色</span></div>
+    </div>
+  </div>
+</body>
+</html>

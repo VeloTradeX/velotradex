@@ -1,0 +1,8 @@
+{
+  "symbol": "BTC_USDT",
+  "side": "sell",
+  "amount": "100",
+  "price": "78000",
+  "type": "limit",
+  "leverage": "0"
+}

@@ -1,0 +1,47 @@
+{
+  "meta": {
+    "parser": "KacangParser",
+    "source": "examples/kacang.json",
+    "parsedAt": "2025-12-10T08:41:19.000Z",
+    "textOnly": true,
+    "note": "本文件中的全部信号均为人工虚构，仅用于演示，非真实交易信号。"
+  },
+  "signals": [
+    {
+      "id": 1,
+      "timestamp": "2025-11-03T07:12:45.000000+00:00",
+      "symbol": "XAU_USDT",
+      "side": "buy",
+      "lotSize": 1,
+      "lotLabel": "normal",
+      "entryZone": [
+        2350,
+        2346
+      ],
+      "tp1": 2360,
+      "tp2": 2368,
+      "sl": 2340,
+      "rawMessage": "【虚构信号 · FICTIONAL SIGNAL — 仅用于演示，非真实交易信号】\nGold buy now @ 2350 - 2346\n\ntp1 : 2360\ntp2 : 2368\nsl : 2340\n\nLayer slowly in zone !",
+      "sourceType": "text",
+      "backtest": null
+    },
+    {
+      "id": 2,
+      "timestamp": "2025-11-18T14:37:02.000000+00:00",
+      "symbol": "XAU_USDT",
+      "side": "sell",
+      "lotSize": 1,
+      "lotLabel": "normal",
+      "entryZone": [
+        2412,
+        2416
+      ],
+      "tp1": 2400,
+      "tp2": 2392,
+      "sl": 2426,
+      "rawMessage": "【虚构信号 · FICTIONAL SIGNAL — 仅用于演示，非真实交易信号】\nGold sell now @ 2412 - 2416\n\ntp1 : 2400\ntp2 : 2392\nsl : 2426\n\nLayer slowly in zone !",
+      "sourceType": "text",
+      "backtest": null
+    }
+  ]
+}

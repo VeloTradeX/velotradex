@@ -1,0 +1,75 @@
+/**
+ * 全局样式：交易所 Logo 相关布局
+ * 放在非 scoped 文件里，因为下拉框选项会 teleport 到 body
+ */
+
+/* 表格单元格：图标 + 名称 水平排列 */
+.cell-with-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+/* Element Plus 下拉框选项：图标 + 名称 + ID */
+.el-select-dropdown .el-select-dropdown__item .option-with-logo {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding-right: 16px;
+}
+
+.el-select-dropdown .el-select-dropdown__item .option-with-logo > .exchange-logo {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+}
+
+/* 名称 span: 占据剩余空间，文字溢出省略 */
+.el-select-dropdown .el-select-dropdown__item .option-with-logo > span.name-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.el-select-dropdown .el-select-dropdown__item .option-with-logo > span:last-child {
+  margin-left: auto;
+  color: #999;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+/* 表格内 el-tag 里的 logo+名称 */
+.cell-with-logo .el-tag,
+.el-tag .cell-with-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ExchangeLogo 组件根元素 */
+.exchange-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+/* Radio button group 里的 logo + 名称 */
+.exchange-type-group .el-radio-button__inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 选中的下拉框回显内容（el-select 已选值） */
+.el-select .el-select__selected-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

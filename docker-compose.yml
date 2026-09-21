@@ -1,0 +1,96 @@
+# velotradex — Docker Compose 一键部署
+#
+# 前置：先 cp .env.example .env，并在 .env 中设置一个高强度的 SERVER_JWT_SECRET。
+# 使用：docker compose up -d --build
+# 说明：
+#   - app 服务从 .env 加载全部环境变量（命名与 .env.example 一致）
+#   - REDIS_HOST 被强制覆写为 compose 服务名 redis
+#   - SQLite 数据文件挂载到宿主 ./data:/app/data（对应 DB_STORAGE=./data/velotradex.db）
+#   - migrate 是一次性 job：先跑完 sequelize 迁移，app 才会启动（空库首次部署也能直接可用）
+
+# app / migrate 共用的容器内环境变量。
+# 这些值必须覆盖 .env，原因见各条注释。
+x-app-environment: &app-environment
+  # 容器内通过 compose 网络访问 Redis，因此覆盖默认的 127.0.0.1
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  NODE_ENV: production
+  # 端口：.env 里的 SERVER_PORT 可能是本地开发用的其它值（如 3010），
+  # 而下面的 ports / healthcheck 固定用 3000，这里显式对齐，避免端口映射与健康检查全错。
+  SERVER_PORT: "3000"
+  # 代理：.env 里的代理通常指向宿主机 127.0.0.1:7890，而容器内的 127.0.0.1 是容器自身，
+  # 会导致交易所 REST/WS 全部连接失败，因此默认清空。
+  # 若确实需要经宿主代理出网，请在 docker-compose.override.yml 中改为：
+  #   TRADING_API_PROXY: http://host.docker.internal:7890
+  #   TRADING_WS_PROXY: http://host.docker.internal:7890
+  HTTP_PROXY: ""
+  HTTPS_PROXY: ""
+  ALL_PROXY: ""
+  TRADING_API_PROXY: ""
+  TRADING_WS_PROXY: ""
+  NO_PROXY: "localhost,127.0.0.1,redis"
+
+services:
+  # 一次性迁移 job：被 app 依赖（service_completed_successfully）。
+  # 迁移失败时 app 不会启动，避免在残缺 schema 上跑交易逻辑。
+  migrate:
+    build: .
+    image: velotradex:latest
+    restart: "no"
+    env_file:
+      - .env
+    environment: *app-environment
+    volumes:
+      # 与 app 共用同一个 SQLite 数据目录
+      - ./data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ["npx", "sequelize-cli", "db:migrate"]
+
+  app:
+    build: .
+    image: velotradex:latest
+    container_name: velotradex
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    # 读取本仓库根目录的 .env（不存在会报错，请先按 README 复制）
+    env_file:
+      - .env
+    environment: *app-environment
+    volumes:
+      # SQLite 数据持久化（host directory）
+      - ./data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      # 必须等迁移 job 成功结束
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # /healthz 是公开且不依赖数据库的端点；
+      # 不要改回 /api/version：那条路径被鉴权中间件拦截，会恒定返回 401 让容器永远 unhealthy。
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/healthz').then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: velotradex-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      # Redis 数据持久化（docker volume）
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  redis-data:

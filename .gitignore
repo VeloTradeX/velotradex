@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+build/
+bin/
+tools/lighter-signer/.venv/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.development
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.claude/
+.superpowers/
+.worktrees/
+.workbuddy/
+
+# Database
+data/
+*.sqlite
+*.db
+
+# Backtest outputs
+docs/backtest/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing
+coverage/
+
+# Misc
+.cache/
+tmp/
+# py-lighter/
+version.json
+
+pl/
+# TODO: Debug logs (后续删除)
+debug_logs/
+
+# 部署脚本（含服务器主机信息，防止误提交）
+admin-web/sync.sh

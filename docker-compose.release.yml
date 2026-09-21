@@ -1,0 +1,107 @@
+# =============================================================================
+# velotradex — 使用「预构建镜像」部署（本地不构建，直接拉取）
+#
+# 与 docker-compose.yml 的区别：
+#   - docker-compose.yml          含 build: .，会在本机重新构建（需要 Node 工具链 / 好网络）
+#   - docker-compose.release.yml  只拉取已发布的镜像（本文件），适合生产/弱网/小磁盘机器
+#
+# 使用：
+#   cp .env.example .env        # 至少设置 SERVER_JWT_SECRET / ADMIN_DEFAULT_PASSWORD
+#   docker compose -f docker-compose.release.yml up -d
+#   docker compose -f docker-compose.release.yml ps
+#
+# 指定版本（推荐生产环境固定版本，而不是用 latest）：
+#   注意 GHCR 上的 semver tag 不带 v 前缀（用 1.0.0）；
+#   而 Release 离线包载入后的镜像名是 velotradex:v1.0.0，所以用离线包时写 VTX_TAG=v1.0.0
+#   VTX_TAG=1.0.0 docker compose -f docker-compose.release.yml up -d
+#
+# 换用其它仓库/镜像名：
+#   VTX_IMAGE=registry.example.com/foo/velotradex VTX_TAG=1.0.0 docker compose -f ... up -d
+#
+# 镜像内已同时包含后端与管理面板：
+#   管理面板  http://<host>:3000/velotradex/
+#   健康检查  http://<host>:3000/healthz
+# =============================================================================
+
+# app / migrate 共用的容器内环境变量（与 docker-compose.yml 保持一致）。
+# 这些值必须覆盖 .env，原因见各条注释。
+x-app-environment: &app-environment
+  # 容器内通过 compose 网络访问 Redis，因此覆盖默认的 127.0.0.1
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  NODE_ENV: production
+  # 端口：.env 里的 SERVER_PORT 可能是本地开发用的其它值（如 3010），
+  # 而下面的 ports / healthcheck 固定用 3000，这里显式对齐。
+  SERVER_PORT: "3000"
+  # 代理：.env 里的代理通常指向宿主机 127.0.0.1:7890，容器内的 127.0.0.1 是容器自身，
+  # 会导致交易所 REST/WS 全部连接失败，因此默认清空。
+  # 若确实需要经宿主代理出网，请在 docker-compose.override.yml 中改为：
+  #   TRADING_API_PROXY: http://host.docker.internal:7890
+  #   TRADING_WS_PROXY: http://host.docker.internal:7890
+  HTTP_PROXY: ""
+  HTTPS_PROXY: ""
+  ALL_PROXY: ""
+  TRADING_API_PROXY: ""
+  TRADING_WS_PROXY: ""
+  NO_PROXY: "localhost,127.0.0.1,redis"
+
+services:
+  # 一次性迁移 job：被 app 依赖（service_completed_successfully）。
+  # 迁移失败时 app 不会启动，避免在残缺 schema 上跑交易逻辑。
+  migrate:
+    image: ${VTX_IMAGE:-ghcr.io/velotradex/velotradex}:${VTX_TAG:-latest}
+    restart: "no"
+    env_file:
+      - .env
+    environment: *app-environment
+    volumes:
+      # 与 app 共用同一个 SQLite 数据目录
+      - ./data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ["npx", "sequelize-cli", "db:migrate"]
+
+  app:
+    image: ${VTX_IMAGE:-ghcr.io/velotradex/velotradex}:${VTX_TAG:-latest}
+    container_name: velotradex
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment: *app-environment
+    volumes:
+      # SQLite 数据持久化（host directory）
+      - ./data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      # 必须等迁移 job 成功结束
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # /healthz 是公开且不依赖数据库的端点
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/healthz').then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: velotradex-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      # Redis 数据持久化（docker volume）
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  redis-data:
