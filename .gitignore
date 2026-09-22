@@ -31,6 +31,8 @@ data/
 
 # Backtest outputs
 docs/backtest/
+# 本地信号数据，禁止提交
+/backtest/
 
 # OS
 .DS_Store
