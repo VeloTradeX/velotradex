@@ -30,10 +30,10 @@ export const SYSTEM_PROMPT = [
     'The trader posts chart screenshots with annotations showing entry prices, stop losses, and take profit levels.',
     'The text accompanying the chart provides context about the action taken.',
     'You MUST combine text intent and image information together.',
-    'Do not open a trade based on image alone.',
-    'Only output action:open when the CURRENT message text clearly indicates active trading intent (already entering now, setting limit now, or explicitly planning to enter now).',
+    'For this channel (r-raizexbt), an annotated chart can itself be the trade signal.',
+    'Output action:open when EITHER (A) the current text clearly indicates active trading intent (longed, shorted, scalp, entering now, setting limit now), OR (B) the chart-signal override applies: the current text is only a symbol tag, a role mention, empty, a one-word label like "scalp", or neutral commentary, and the attached chart shows a complete position setup that is ready to execute (a drawn entry boundary plus stop-loss and take-profit levels).',
     'If the text says the position was opened elsewhere, in another account, earlier, historically, or is only sharing past trades/performance, return action:ignore even if a chart has clear levels.',
-    'When text and image conflict, prioritize text intent for deciding action type.',
+    'When text contains explicit management, planning or conditional intent (close, update, cancel, TP hit, SL move, breakeven, watching, plan, looking for, if/when, not setting limits), prioritize text. When text is neutral or non-actionable, let the chart decide action and side.',
     'For TP shorthand messages (e.g., "TP1", "TP2", "Tp1") with an attached chart, treat this as take-profit execution on an existing position, not ignore.',
     'When TP shorthand message has no explicit symbol, use <positions> and chart direction/price levels to map to the most likely active position symbol.',
     'For TP1/TP2 shorthand without explicit full-close wording, closePercentage may be omitted so execution can use configured tpDistribution.',
@@ -88,9 +88,9 @@ export const VISION_RULES = `<rules>
 19. If take-profit prices are not visible or not inferable, set targets to []
 20. Symbol format: use BASE_USDT (e.g. SOL_USDT, BTC_USDT, ETH_USDT)
 21. Only analyze English text. Any Chinese text has already been removed.
-22. Open-intent gate: action:open is allowed only when current text indicates active open intent now. If text lacks open intent, do not output open.
+22. Open-intent gate: action:open is allowed when EITHER the current text indicates active open intent now, OR the chart-signal override in rule 34 applies.
 23. If text indicates "opened elsewhere", "already in from another place/account", "old trade/history/recap/performance showcase", output action:ignore even when chart has complete setup.
-24. If chart shows setup but text is only commentary or retrospective sharing, output action:ignore.
+24. If chart shows setup but text is only commentary or retrospective sharing, output action:ignore, UNLESS the chart-signal override (rule 34) applies.
 25. If current message is TP shorthand (TP1/TP2/Tp1/Tp2) and has chart image, do NOT ignore; classify as action:close for existing position management.
 26. If TP shorthand message does not include symbol, infer symbol by matching chart direction/entry/stop/tp levels to <positions>; if one position is clearly most likely, use that symbol.
 27. For TP shorthand without explicit full-close wording, closePercentage can be null to let execution map to configured tpDistribution.
@@ -100,6 +100,18 @@ export const VISION_RULES = `<rules>
 31. If the message is moving stop-loss to breakeven / break-even / B/E / "stops be", output action:update with stopLoss:"breakeven".
 32. If the message says close/exit at breakeven, output action:close instead of update.
 33. Risk multiplier: If text mentions risk level like "0.5R", "0.5 R", "half R", "low risk", "reduced risk", extract riskMultiplier. "0.5R" or "half R" or "low risk" = 0.5. "1R" or "normal" = 1.0. "2R" or "high risk" = 2.0. If not mentioned, omit riskMultiplier (defaults to 1.0).
+34. CHART-SIGNAL OVERRIDE (this channel only): the trader often posts the entry chart itself as the signal, with only a symbol tag ($BTC, $ETH, €ETH), a role mention, empty text, a one-word label like "scalp", or neutral commentary. When the attached chart shows a complete, ready-to-execute position setup (a drawn entry boundary PLUS stop-loss PLUS take-profit levels, usually a TradingView risk/reward box), output action:open instead of ignore.
+35. The override does NOT apply when the text is: a plan or watch or conditional message (watching, looking for, plan, idea, "if ...", "when ...", "not setting limits", "for now", "will try", "waiting"), an RR or performance report, a greeting (gm/gn), "opened elsewhere/history/recap", or any close/update/cancel/TP/SL/breakeven/partials management. These keep their normal rules (usually action:ignore, action:close or action:update). When in doubt, do NOT apply the override.
+36. Override side: ignore any crowd bias in the commentary (e.g. "They all longing"); take side strictly from the chart. Green TP zone above the entry boundary with gray SL zone below = side:buy. Red TP zone below the entry boundary with gray SL zone above = side:sell.
+37. orderType: always output "limit" when an entry price is available. Do NOT try to guess market vs limit from the chart - the execution layer decides market vs limit at execution time using the live price. Use "market" only when there is no entry line at all (no entryPrice), so execution falls back to the current price.
+38. Override confidence: when the entry boundary, SL and TP are all clearly visible, set confidence >= 0.5 (downstream skips confidence < 0.3).
+39. Symbol typos and labels: treat €, ¥, £ before a ticker as $ (€ETH = ETH_USDT). A role mention or a bare ticker is only a pointer to the chart, not a reason to ignore.
+40. "scalp" (noun or label) with an annotated chart is an active open signal: side from the chart, orderType per rule 37.
+41. DCA / add-to-position ("dca", "dca my entry", "adding here", "averaging in") = action:open to increase the position.
+   - symbol and side: use the active position from <positions>; if <positions> is empty, use the symbol and side of the most recent explicit entry in <context>.
+   - entryPrice: use the chart/context entry line if available.
+   - orderType: limit if an entry price is available, otherwise market (execution uses the current price).
+   - Do not output action:update for DCA; DCA is not a stop-loss or target adjustment.
 </rules>`;
 
 export const TEXT_RULES = `<rules>
@@ -125,6 +137,12 @@ export const TEXT_RULES = `<rules>
 20. If the message is moving stop-loss to breakeven / break-even / B/E / "stops be", output action:update with stopLoss:"breakeven".
 21. If the message says close/exit at breakeven, output action:close rather than update.
 22. Risk multiplier: If text mentions risk level like "0.5R", "0.5 R", "half R", "low risk", "reduced risk", extract riskMultiplier. "0.5R" or "half R" or "low risk" = 0.5. "1R" or "normal" = 1.0. "2R" or "high risk" = 2.0. If not mentioned, omit riskMultiplier (defaults to 1.0).
+23. Symbol typos: treat €, ¥, £ before a ticker as $ (€ETH = ETH_USDT).
+24. DCA / add-to-position ("dca", "dca my entry", "adding here", "averaging in") = action:open to increase the position.
+   - symbol and side: use the active position from <positions>; if <positions> is empty, use the symbol and side of the most recent explicit entry in <context>.
+   - entryPrice: use the chart/context entry line if available.
+   - orderType: limit if an entry price is available, otherwise market (execution uses the current price).
+   - Do not output action:update for DCA; DCA is not a stop-loss or target adjustment.
 </rules>`;
 
 export const OUTPUT_FORMAT = `<output_format>

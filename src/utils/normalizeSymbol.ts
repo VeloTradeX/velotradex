@@ -3,12 +3,12 @@
  *
  * - Uppercases, trims whitespace
  * - Replaces `/` with `_`
- * - Strips leading `$`
+ * - Strips leading `$` and common currency-symbol typos (`€`, `¥`, `£`)
  * - Ensures `_USDT` suffix
  */
 export function normalizeSymbol(symbol: string): string {
   let s = String(symbol).toUpperCase().replace('/', '_').trim();
-  s = s.replace(/^\$/, '');
+  s = s.replace(/^[$€¥£]/, '');
   if (s.endsWith('_USDT')) return s;
   if (s.endsWith('USDT')) {
     const base = s.slice(0, -4).replace(/_+$/, '');
