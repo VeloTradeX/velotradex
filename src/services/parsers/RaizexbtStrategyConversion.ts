@@ -56,7 +56,7 @@ export function convertToStrategies(result: LLMResult, rawMessage: any, logPrefi
         }
         const strategies: ParsedStrategy[] = [strategy];
         if (
-            managementContext.hasBreakevenWord &&
+            (managementContext.hasBreakevenWord || managementContext.hasStopToEntryIntent) &&
             (result.stopLoss === 'breakeven' || managementContext.hasCloseVerb || managementContext.hasPartialWord) &&
             closePercentage !== 100
         ) {
@@ -156,9 +156,14 @@ export function shouldConvertToBreakevenUpdate(
     result: LLMResult,
     context: ManagementContext
 ): boolean {
-    if (!context.hasBreakevenWord) return false;
+    if (!context.hasBreakevenWord && !context.hasStopToEntryIntent) return false;
     if (context.hasCloseVerb) return false;
-    if (result.action === 'cancel' || result.action === 'ignore' || result.action === 'open' || result.action === 'close') return false;
+    if (result.action === 'cancel' || result.action === 'ignore' || result.action === 'close') return false;
+    // Plain "breakeven" / "stops be" keeps the existing guard (trust the LLM's
+    // open decision). Explicit stop-to-entry shorthand ("stops entry", "sl to
+    // entry") is always management of an existing position: override a chart-signal
+    // override that misclassified it as a fresh open.
+    if (result.action === 'open' && !context.hasStopToEntryIntent) return false;
     return true;
 }
 

@@ -33,14 +33,14 @@ export const SYSTEM_PROMPT = [
     'For this channel (r-raizexbt), an annotated chart can itself be the trade signal.',
     'Output action:open when EITHER (A) the current text clearly indicates active trading intent (longed, shorted, scalp, entering now, setting limit now), OR (B) the chart-signal override applies: the current text is only a symbol tag, a role mention, empty, a one-word label like "scalp", or neutral commentary, and the attached chart shows a complete position setup that is ready to execute (a drawn entry boundary plus stop-loss and take-profit levels).',
     'If the text says the position was opened elsewhere, in another account, earlier, historically, or is only sharing past trades/performance, return action:ignore even if a chart has clear levels.',
-    'When text contains explicit management, planning or conditional intent (close, update, cancel, TP hit, SL move, breakeven, watching, plan, looking for, if/when, not setting limits), prioritize text. When text is neutral or non-actionable, let the chart decide action and side.',
+    'When text contains explicit management, planning or conditional intent (close, update, cancel, TP hit, SL move, breakeven, stop-to-entry/"stops entry"/"sl to entry", watching, plan, looking for, if/when, not setting limits), prioritize text. When text is neutral or non-actionable, let the chart decide action and side.',
     'For TP shorthand messages (e.g., "TP1", "TP2", "Tp1") with an attached chart, treat this as take-profit execution on an existing position, not ignore.',
     'When TP shorthand message has no explicit symbol, use <positions> and chart direction/price levels to map to the most likely active position symbol.',
     'For TP1/TP2 shorthand without explicit full-close wording, closePercentage may be omitted so execution can use configured tpDistribution.',
     'Only use closePercentage=100 when text explicitly indicates full close (e.g., "close all", "fully closed", "all out", "100%").',
     'If the message is setting a TP price/level for an existing position (not TP1/TP2 shorthand), output action:close and put that exit price into closePrice.',
     'If a TP message includes a partial-close ratio such as 25%, 50%, or 90%, include it in closePercentage.',
-    'If the message is moving stop loss to breakeven / break-even / B/E / "stops be", output action:update and stopLoss:"breakeven".',
+    'If the message moves the stop loss to breakeven / break-even / B/E / entry ("stops be", "stops entry", "stop to entry", "sl to entry", "stops at entry"), output action:update and stopLoss:"breakeven". This is management of an existing position even when an annotated chart is attached - never output action:open for it.',
     'If the message says to close/exit at breakeven, that is action:close, not action:update.',
     'When chart labels are clear, prioritize extracting numeric levels from the chart over vague text.',
     'Most charts are TradingView charts.',
@@ -97,11 +97,11 @@ export const VISION_RULES = `<rules>
 28. closePercentage: 100 is only allowed when text explicitly means full close (e.g., close all, fully closed, all out, 100%).
 29. If the current message is setting a take-profit price/level (for example "tp at 70.2" or a chart marking the TP location) and it is NOT TP1/TP2 shorthand, output action:close with closePrice set to that TP level.
 30. If that TP message also says to close a portion (for example 90%), include closePercentage with that number.
-31. If the message is moving stop-loss to breakeven / break-even / B/E / "stops be", output action:update with stopLoss:"breakeven".
+31. If the message moves the stop-loss to breakeven / break-even / B/E / entry ("stops be", "stops entry", "stop to entry", "sl to entry", "stops at entry"), output action:update with stopLoss:"breakeven". This is management of an existing position even when an annotated chart is attached - do NOT output action:open for it.
 32. If the message says close/exit at breakeven, output action:close instead of update.
 33. Risk multiplier: If text mentions risk level like "0.5R", "0.5 R", "half R", "low risk", "reduced risk", extract riskMultiplier. "0.5R" or "half R" or "low risk" = 0.5. "1R" or "normal" = 1.0. "2R" or "high risk" = 2.0. If not mentioned, omit riskMultiplier (defaults to 1.0).
 34. CHART-SIGNAL OVERRIDE (this channel only): the trader often posts the entry chart itself as the signal, with only a symbol tag ($BTC, $ETH, €ETH), a role mention, empty text, a one-word label like "scalp", or neutral commentary. When the attached chart shows a complete, ready-to-execute position setup (a drawn entry boundary PLUS stop-loss PLUS take-profit levels, usually a TradingView risk/reward box), output action:open instead of ignore.
-35. The override does NOT apply when the text is: a plan or watch or conditional message (watching, looking for, plan, idea, "if ...", "when ...", "not setting limits", "for now", "will try", "waiting"), an RR or performance report, a greeting (gm/gn), "opened elsewhere/history/recap", or any close/update/cancel/TP/SL/breakeven/partials management. These keep their normal rules (usually action:ignore, action:close or action:update). When in doubt, do NOT apply the override.
+35. The override does NOT apply when the text is: a plan or watch or conditional message (watching, looking for, plan, idea, "if ...", "when ...", "not setting limits", "for now", "will try", "waiting"), an RR or performance report, a greeting (gm/gn), "opened elsewhere/history/recap", or any close/update/cancel/TP/SL/breakeven/stop-to-entry ("stops entry", "sl to entry", "move stop to entry")/partials management. These keep their normal rules (usually action:ignore, action:close or action:update). When in doubt, do NOT apply the override.
 36. Override side: ignore any crowd bias in the commentary (e.g. "They all longing"); take side strictly from the chart. Green TP zone above the entry boundary with gray SL zone below = side:buy. Red TP zone below the entry boundary with gray SL zone above = side:sell.
 37. orderType: always output "limit" when an entry price is available. Do NOT try to guess market vs limit from the chart - the execution layer decides market vs limit at execution time using the live price. Use "market" only when there is no entry line at all (no entryPrice), so execution falls back to the current price.
 38. Override confidence: when the entry boundary, SL and TP are all clearly visible, set confidence >= 0.5 (downstream skips confidence < 0.3).
@@ -134,7 +134,7 @@ export const TEXT_RULES = `<rules>
 17. For TP shorthand without explicit full-close wording, closePercentage can be null to let execution map to configured tpDistribution.
 18. If a non-shorthand TP message is setting a TP price/level for an existing position, output action:close and set closePrice to that TP level.
 19. If that TP message contains a partial-close ratio (e.g. 25%, 50%, 90%), include it in closePercentage.
-20. If the message is moving stop-loss to breakeven / break-even / B/E / "stops be", output action:update with stopLoss:"breakeven".
+20. If the message moves the stop-loss to breakeven / break-even / B/E / entry ("stops be", "stops entry", "stop to entry", "sl to entry", "stops at entry"), output action:update with stopLoss:"breakeven".
 21. If the message says close/exit at breakeven, output action:close rather than update.
 22. Risk multiplier: If text mentions risk level like "0.5R", "0.5 R", "half R", "low risk", "reduced risk", extract riskMultiplier. "0.5R" or "half R" or "low risk" = 0.5. "1R" or "normal" = 1.0. "2R" or "high risk" = 2.0. If not mentioned, omit riskMultiplier (defaults to 1.0).
 23. Symbol typos: treat €, ¥, £ before a ticker as $ (€ETH = ETH_USDT).

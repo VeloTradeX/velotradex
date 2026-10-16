@@ -154,11 +154,32 @@ export interface ManagementContext {
     hasTpShorthand: boolean;
     hasTakeProfitIntent: boolean;
     hasBreakevenWord: boolean;
+    hasStopToEntryIntent: boolean;
     hasCloseVerb: boolean;
     hasPartialWord: boolean;
     isExplicitFullClose: boolean;
     partialClosePercentage?: number;
     explicitClosePercentage?: number;
+}
+
+/**
+ * Detect stop-to-entry / stop-to-breakeven phrasing.
+ *
+ * raizexbt shorthand: "stops entry", "sl entry", "stops to entry",
+ * "move my stop loss to entry", "sl at entry", "stop to be".
+ * These all mean "move the stop-loss to the entry price (breakeven)" and are
+ * position management, never a fresh entry - even when an annotated chart is
+ * attached and the chart-signal override would otherwise classify it as open.
+ */
+export function isStopToEntryText(text: string): boolean {
+    const normalized = String(text || '').toLowerCase();
+
+    // Reverse shorthand: "stops entry", "sl entry", "stop loss entry", "stops to entry".
+    if (/\b(sl|stops?|stop[\s-]?loss)\s+(?:to\s+)?entry\b/.test(normalized)) return true;
+
+    // Explicit moves: "move my stop loss to entry", "stops at entry", "sl to be".
+    // Note: reversed wording such as "entry and stops in chart" must NOT match.
+    return /\b(?:mov(?:e|ing)\s+)?(?:my\s+)?(?:sl|stops?|stop[\s-]?loss)\b[^.\n]{0,20}\b(?:to|at|@)\b[^.\n]{0,10}\b(?:my\s+)?(?:entry|be|breakeven|break[\s-]?even)\b/.test(normalized);
 }
 
 export function analyzeManagementContext(rawMessage: any): ManagementContext {
@@ -167,6 +188,7 @@ export function analyzeManagementContext(rawMessage: any): ManagementContext {
     const hasTpShorthand = /\btp\s*[1-9]\d?\b|\btp[1-9]\d?\b/.test(englishText);
     const hasTakeProfitIntent = /\b(tp|take[\s-]*profit)\b/.test(englishText);
     const hasBreakevenWord = /\b(breakeven|break[\s-]*even|b\/e|stops?\s+be)\b/.test(englishText);
+    const hasStopToEntryIntent = isStopToEntryText(englishText);
     const hasPartialWord = /\b(partialed|partials?|trim|trimmed|out|runner|runners)\b/.test(englishText);
     const hasCloseVerb = /\b(close|closing|closed|exit|exiting|stopped|stopped out|stop(ped)? out|trim|partialed|partials?|out)\b/.test(englishText);
     const explicitClosePercentage = extractClosePercentageFromText(englishText);
@@ -177,6 +199,7 @@ export function analyzeManagementContext(rawMessage: any): ManagementContext {
         hasTpShorthand,
         hasTakeProfitIntent,
         hasBreakevenWord,
+        hasStopToEntryIntent,
         hasCloseVerb,
         hasPartialWord,
         isExplicitFullClose,
