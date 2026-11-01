@@ -66,6 +66,9 @@ export const SYSTEM_PROMPT = [
     'For close/update/cancel actions the target position comes from <reply_to>. If the current text does not name a symbol, copy the symbol from <origin_signal symbol="...">. Never substitute a different symbol guessed from <positions> or <context> when <reply_to> is present.',
     'If <origin_signal> shows order_status="PENDING" or lifecycle_status="INIT"/"PENDING" (the entry order has not filled yet) and the current message says stop-to-entry / breakeven / cut / close, still output the management action for that symbol; the execution layer cancels the unfilled entry instead of closing a position.',
     '"Cutting here", "cutting", "cut here", "closing here" = action:close for the reply target. Retrospective wording ("good cut", "results", "monthly recap") = action:ignore.',
+    'Partial-exit intent has higher priority than RR-report detection. "partials", "partial", "taking partials", "took partials", "scale out", "some off", "taking some off", "trim" = action:close. If no percentage is stated, set closePercentage:50.',
+    'If the same message also says "SL entry", "stops to entry", "stops at entry", "SL to BE" or "breakeven", keep action:close and include stopLoss:"breakeven" in the same JSON. Both the partial close and the breakeven stop must be applied - do not drop either.',
+    'An RR figure ("1.8R+", "2.5RR+", "0.5R") is a report only when it stands alone or is part of a monthly recap/history list with no action verb. When it is paired with an action ("partials", "cut", "close", "SL entry", "TP"), it is an instruction: act on the action instead of returning action:ignore.',
     'Output ONLY valid JSON. No markdown, no code block, no explanation.'
 ].join(' ');
 
@@ -75,7 +78,7 @@ export const VISION_RULES = `<rules>
 3. "Closing", "Stopped", "Stopped out" = action:close
 4. "Remove limit", "Cancel" = action:cancel
 5. "setting limit" with chart = action:open, orderType:limit
-6. RR reports like "2.5RR+", "0.5R" = action:ignore (performance report, not actionable)
+6. Standalone RR reports like "2.5RR+", "0.5R" = action:ignore. If the RR figure is paired with an action (partials, cut, close, SL entry, TP), it is an instruction, not a report.
 7. Tp reports like "Tp1", "Tp2" = action:close (closePercentage may be null so execution can map by tpDistribution)
 8. "No active limits", "Gn", greetings = action:ignore
 9. If text says "Entry and stops in chart", you MUST extract entry price and stop loss from the chart image
@@ -126,6 +129,9 @@ export const VISION_RULES = `<rules>
 43. For close/update/cancel actions the target position comes from <reply_to>. If the current text does not name a symbol, copy the symbol from <origin_signal symbol="...">. Never substitute a different symbol guessed from <positions> or <context> when <reply_to> is present.
 44. If <origin_signal> shows order_status="PENDING" or lifecycle_status="INIT"/"PENDING" (the entry order has not filled yet) and the current message says stop-to-entry / breakeven / cut / close, still output the management action for that symbol; the execution layer cancels the unfilled entry instead of closing a position.
 45. "Cutting here", "cutting", "cut here", "closing here" = action:close for the reply target. Retrospective wording ("good cut", "results", "monthly recap") = action:ignore.
+46. Partial-exit intent outranks RR-report detection. "partials", "taking partials", "scale out", "some off", "trim" = action:close. If no percentage is stated, set closePercentage:50.
+47. If the same message also says "SL entry" / "stops to entry" / "breakeven", keep action:close and include stopLoss:"breakeven" in the same JSON so both the partial close and the breakeven stop are executed.
+48. An RR figure is a report only when it stands alone; paired with an action (partials/cut/close/SL entry/TP) it is an instruction.
 </rules>`;
 
 export const TEXT_RULES = `<rules>
@@ -161,6 +167,9 @@ export const TEXT_RULES = `<rules>
 26. For close/update/cancel actions the target position comes from <reply_to>. If the current text does not name a symbol, copy the symbol from <origin_signal symbol="...">; never guess a different symbol from <positions> when <reply_to> is present.
 27. If the reply target order is PENDING/INIT (entry not filled yet) and the text says stop-to-entry / breakeven / cut / close, output the management action for that symbol; the execution layer cancels the pending entry.
 28. "Cutting here" / "cutting" / "cut here" = action:close for the reply target; "good cut" / "results" / "monthly recap" = action:ignore.
+29. Partial-exit intent outranks RR-report detection. "partials", "taking partials", "scale out", "some off", "trim" = action:close. If no percentage is stated, set closePercentage:50.
+30. If the same message also says "SL entry" / "stops to entry" / "breakeven", keep action:close and include stopLoss:"breakeven" in the same JSON.
+31. An RR figure is a report only when it stands alone; paired with an action (partials/cut/close/SL entry/TP) it is an instruction, not a report.
 </rules>`;
 
 export const OUTPUT_FORMAT = `<output_format>
@@ -168,7 +177,7 @@ export const OUTPUT_FORMAT = `<output_format>
   "action": "open|close|update|cancel|ignore",
   "symbol": "BTC_USDT",
   "side": "buy|sell",
-  "closePercentage": number_or_null (TP1/TP2 shorthand may be null to use execution tpDistribution; full-close wording -> 100),
+  "closePercentage": number_or_null (partial intent without a stated percentage -> 50; TP1/TP2 shorthand may be null to use execution tpDistribution; full-close wording -> 100),
   "closePrice": number_or_null (for priced TP / priced exit close orders),
   "entryPrice": number_or_null,
   "stopLoss": number_or_"breakeven"_or_null,

@@ -37,6 +37,23 @@ export function convertToStrategies(result: LLMResult, rawMessage: any, logPrefi
         result = { ...result, action: 'close' };
     }
 
+    // Partial-exit intent outranks the RR-report classification: "1.8R+ partials"
+    // is an instruction to close part of the position, even when the LLM labelled
+    // it as update. The close branch below also emits the breakeven update when
+    // the same message says SL entry / stops to entry.
+    if (
+        result.action === 'update' &&
+        typeof managementContext.partialClosePercentage === 'number' &&
+        !managementContext.isExplicitFullClose
+    ) {
+        const partialPercentage = result.closePercentage ?? managementContext.partialClosePercentage;
+        logger.info(`${logPrefix} Partial-exit intent overrides update classification`, {
+            closePercentage: partialPercentage,
+            hasStopToEntry: managementContext.hasStopToEntryIntent,
+        });
+        result = { ...result, action: 'close', closePercentage: partialPercentage };
+    }
+
     if (result.action === 'close') {
         const closePercentage = resolveClosePercentage(result, rawMessage);
         const closePrice = resolveClosePrice(result, rawMessage);
@@ -202,11 +219,22 @@ export function resolveClosePrice(result: LLMResult, rawMessage: any): string | 
 }
 
 export function resolveClosePercentage(result: LLMResult, rawMessage: any): number | undefined {
+    const context = analyzeManagementContext(rawMessage);
+
+    // Partial-exit intent has priority over the LLM percentage: "1.8R+ partials"
+    // must default to 50%, never 100%. An explicit percentage or an explicit
+    // full-close phrase still wins.
+    if (
+        typeof context.partialClosePercentage === 'number' &&
+        !context.isExplicitFullClose &&
+        typeof context.explicitClosePercentage !== 'number'
+    ) {
+        return context.partialClosePercentage;
+    }
+
     if (typeof result.closePercentage === 'number' && Number.isFinite(result.closePercentage)) {
         return Math.max(0, Math.min(100, result.closePercentage));
     }
-
-    const context = analyzeManagementContext(rawMessage);
 
     if (typeof context.explicitClosePercentage === 'number') {
         return context.explicitClosePercentage;

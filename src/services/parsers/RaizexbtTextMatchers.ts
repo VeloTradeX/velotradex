@@ -189,8 +189,8 @@ export function analyzeManagementContext(rawMessage: any): ManagementContext {
     const hasTakeProfitIntent = /\b(tp|take[\s-]*profit)\b/.test(englishText);
     const hasBreakevenWord = /\b(breakeven|break[\s-]*even|b\/e|stops?\s+be)\b/.test(englishText);
     const hasStopToEntryIntent = isStopToEntryText(englishText);
-    const hasPartialWord = /\b(partialed|partials?|trim|trimmed|out|runner|runners)\b/.test(englishText);
-    const hasCloseVerb = /\b(close|closing|closed|exit|exiting|stopped|stopped out|stop(ped)? out|trim|partialed|partials?|out)\b/.test(englishText);
+    const hasPartialWord = /\b(partialed|partials?|trim|trimmed|out|runner|runners|some\s+off|scale(?:d)?\s+out)\b/.test(englishText);
+    const hasCloseVerb = /\b(close|closing|closed|exit|exiting|stopped|stopped out|stop(ped)? out|trim|partialed|partials?|out|some\s+off|scale(?:d)?\s+out)\b/.test(englishText);
     const explicitClosePercentage = extractClosePercentageFromText(englishText);
     const isExplicitFullClose = /\b(close all|fully closed|full close|full closed|closing full|closed full|full tp|all out|stopped out|stop(ped)? out|100%)\b/.test(englishText);
     const partialClosePercentage = resolvePartialClosePercentage(englishText, explicitClosePercentage);
@@ -221,14 +221,14 @@ export function extractClosePercentageFromText(text: string, allowSizingHints: b
 
 export function resolvePartialClosePercentage(text: string, explicitClosePercentage?: number): number | undefined {
     if (typeof explicitClosePercentage === 'number') return explicitClosePercentage;
-    if (!/\b(partialed|partials?|trim|trimmed|out|runner|runners)\b/.test(text)) return undefined;
+    if (!/\b(partialed|partials?|trim|trimmed|out|runner|runners|some\s+off|scale(?:d)?\s+out)\b/.test(text)) return undefined;
     if (/\b(major|most|mostly)\s+(partials?|out)\b|\b(closing|closed|taking|took)\s+most\b|\bleaving\s+runners?\b/.test(text)) {
         return 80;
     }
     if (/\bhalf\s+(out|off|closed)\b/.test(text)) {
         return 50;
     }
-    if (/\b(partialed|partials?|trim|trimmed)\b/.test(text)) {
+    if (/\b(partialed|partials?|trim|trimmed|some\s+off|scale(?:d)?\s+out)\b/.test(text)) {
         return 50;
     }
     return undefined;
