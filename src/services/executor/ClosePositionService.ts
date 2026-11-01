@@ -9,15 +9,20 @@ import { buildTakeProfitOrderText } from '../../utils/orderText';
 import { CloseScopeResolver } from '../CloseScopeResolver';
 import { isScopedOpenOrder, isScopedProtectionOrder, extractTpStepFromRawMessage } from '../OrderClassifier';
 import { ExecutorServices, ExecutorCapabilities, summarizeParsedForDebug } from './deps';
+import { PendingEntryService } from './PendingEntryService';
 import cfdPriceSyncService from '../CfdPriceSyncService';
 
 const debugOrderClose = createNamedStageDebug('order', 'close');
 
 export class ClosePositionService {
+  private readonly pendingEntryService: PendingEntryService;
+
   constructor(
     private readonly services: ExecutorServices,
     private readonly capabilities: ExecutorCapabilities,
-  ) {}
+  ) {
+    this.pendingEntryService = new PendingEntryService(services.exchangeRegistry, services.auditService);
+  }
 
   public async handleClose(
     parsed: ParsedStrategy,
@@ -61,6 +66,24 @@ export class ClosePositionService {
 
     if (scopedOrders.length === 0) {
         logger.warn(`No scoped active order found for close ${parsed.symbol}`, { strategyId, parsedOrderId: parsed.orderId, scopeMode });
+
+        // A cut/close signal can arrive while the original entry is still a
+        // pending limit order (no position yet). In that case the trader has
+        // already abandoned the setup: cancel the unfilled entry instead of
+        // leaving it alive to fill hours later.
+        const cancelledPendingEntry = await this.pendingEntryService.cancelUnfilledEntry({
+            parsed,
+            exchangeInstanceId,
+            strategyId,
+            reason: 'close-signal-before-entry-fill',
+        });
+        if (cancelledPendingEntry) {
+            logger.info(`Cancelled unfilled entry on close signal for ${parsed.symbol}`, {
+                strategyId,
+                exchangeOrderId: cancelledPendingEntry.id,
+            });
+            return cancelledPendingEntry;
+        }
 
         // Manual Intervention Detection: If no tracked orders but position exists, it's manual
         const positions = await exchange.getPositions();

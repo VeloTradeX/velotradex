@@ -1,5 +1,6 @@
 import logger, { formatError } from '../../utils/logger';
 import { normalizeSymbol } from '../../utils/normalizeSymbol';
+import { extractFirstJsonObject } from '../../utils/jsonExtract';
 import { parseNumericValue, normalizeStopLossValue } from './RaizexbtTextMatchers';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -20,6 +21,11 @@ export interface LLMResult {
     riskMultiplier?: number;
     confidence?: number;
     reasoning?: string;
+    // Filled by the reply-chain resolver, not by the LLM.
+    referencedSymbol?: string | null;
+    replyStrategyId?: number | null;
+    replyOrderId?: number | null;
+    replyOrderStatus?: string | null;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -56,6 +62,10 @@ export const SYSTEM_PROMPT = [
     'If multiple take-profit levels are visible (TP1/TP2/TP3 or multiple horizontal TP lines), extract all of them as a numeric array in ascending order and do not keep only one.',
     'If no take-profit level is visible or stated, return targets as an empty array.',
     'Your job is to extract structured trading information from the chart image and text.',
+    'A <reply_to> block may be provided. It contains the quoted message(s) (nearest first) and, when resolvable, an <origin_signal> with the original signal symbol, side, entry/stop and the current order status. The current message is a reply to those messages; treat it as operating on the quoted signal/position.',
+    'For close/update/cancel actions the target position comes from <reply_to>. If the current text does not name a symbol, copy the symbol from <origin_signal symbol="...">. Never substitute a different symbol guessed from <positions> or <context> when <reply_to> is present.',
+    'If <origin_signal> shows order_status="PENDING" or lifecycle_status="INIT"/"PENDING" (the entry order has not filled yet) and the current message says stop-to-entry / breakeven / cut / close, still output the management action for that symbol; the execution layer cancels the unfilled entry instead of closing a position.',
+    '"Cutting here", "cutting", "cut here", "closing here" = action:close for the reply target. Retrospective wording ("good cut", "results", "monthly recap") = action:ignore.',
     'Output ONLY valid JSON. No markdown, no code block, no explanation.'
 ].join(' ');
 
@@ -112,6 +122,10 @@ export const VISION_RULES = `<rules>
    - entryPrice: use the chart/context entry line if available.
    - orderType: limit if an entry price is available, otherwise market (execution uses the current price).
    - Do not output action:update for DCA; DCA is not a stop-loss or target adjustment.
+42. A <reply_to> block may be provided. It contains the quoted message(s) (nearest first) and, when resolvable, an <origin_signal> with the original signal symbol, side, entry/stop and the current order status. The current message is a reply to those messages; treat it as operating on the quoted signal/position.
+43. For close/update/cancel actions the target position comes from <reply_to>. If the current text does not name a symbol, copy the symbol from <origin_signal symbol="...">. Never substitute a different symbol guessed from <positions> or <context> when <reply_to> is present.
+44. If <origin_signal> shows order_status="PENDING" or lifecycle_status="INIT"/"PENDING" (the entry order has not filled yet) and the current message says stop-to-entry / breakeven / cut / close, still output the management action for that symbol; the execution layer cancels the unfilled entry instead of closing a position.
+45. "Cutting here", "cutting", "cut here", "closing here" = action:close for the reply target. Retrospective wording ("good cut", "results", "monthly recap") = action:ignore.
 </rules>`;
 
 export const TEXT_RULES = `<rules>
@@ -143,6 +157,10 @@ export const TEXT_RULES = `<rules>
    - entryPrice: use the chart/context entry line if available.
    - orderType: limit if an entry price is available, otherwise market (execution uses the current price).
    - Do not output action:update for DCA; DCA is not a stop-loss or target adjustment.
+25. A <reply_to> block may be provided. It contains the quoted message(s) (nearest first) and, when resolvable, an <origin_signal> with the original signal symbol, side, entry/stop and the current order status.
+26. For close/update/cancel actions the target position comes from <reply_to>. If the current text does not name a symbol, copy the symbol from <origin_signal symbol="...">; never guess a different symbol from <positions> when <reply_to> is present.
+27. If the reply target order is PENDING/INIT (entry not filled yet) and the text says stop-to-entry / breakeven / cut / close, output the management action for that symbol; the execution layer cancels the pending entry.
+28. "Cutting here" / "cutting" / "cut here" = action:close for the reply target; "good cut" / "results" / "monthly recap" = action:ignore.
 </rules>`;
 
 export const OUTPUT_FORMAT = `<output_format>
@@ -180,10 +198,16 @@ export function parseResponseContent(content: string, usage: any, logPrefix: str
     logger.info(`${logPrefix} LLM raw response`, { content });
 
     try {
-        // Handle potential markdown code block wrapping
-        let jsonStr = content.trim();
-        if (jsonStr.startsWith('```')) {
-            jsonStr = jsonStr.replace(/^```(?:json)?\s*/, '').replace(/```\s*$/, '');
+        // Models occasionally append trailing tool-call text (`<function...`)
+        // or explanations after an otherwise valid JSON object. Extract the
+        // first balanced object instead of parsing the whole response.
+        const jsonStr = extractFirstJsonObject(content);
+        if (!jsonStr) {
+            logger.warn(`${logPrefix} LLM response does not contain a complete JSON object`, {
+                contentStart: content.slice(0, 120),
+                contentEnd: content.slice(-120),
+            });
+            return null;
         }
 
         const result = JSON.parse(jsonStr) as LLMResult;

@@ -5,6 +5,7 @@ import { GateIORestClient } from './gate/GateIORestClient';
 import { GateIOWSEventRouter } from './GateIOWSEventRouter';
 import { GateIOWebSocket } from './GateIOWebSocket';
 import { GateIOOrderPersistenceHandler } from './GateIOOrderPersistenceHandler';
+import { computeGateFilledQty } from './gateOrderFillMath';
 import orderPersistenceHandler from '../OrderPersistenceHandler';
 import { ProtectionPipeline } from '../ProtectionPipeline';
 import { PendingProtection, Order } from '../../models';
@@ -224,11 +225,13 @@ export class GateIOExchange extends EventEmitter implements IExchange {
 
       logger.info(`WS Order Update: ID=${orderId} Status=${status} Text=${rawOrder.text || ''} FillPrice=${rawOrder.fill_price} Left=${rawOrder.left}`);
 
-      // P0-2: 部分成交检测。finished 订单 left>0 时若 |size|-|left| > 0 表示有实际成交量，
-      // 必须按 fill 处理（放保护），而不是当成纯取消。
+      // P0-2: 部分成交检测。`size` / `left` 在 Gate WS 中是带符号的（卖单为负），
+      // 必须两边取绝对值再相减，否则“撤单”会被算成“全部成交”
+      // （例如卖单撤销 size=-49 / left=-49 → 旧算法得到 98）。
       const rawSize = Math.abs(parseFloat(rawOrder.size ?? '0'));
-      const left = rawOrder.left != null ? parseFloat(rawOrder.left) : 0;
-      const filledQty = Number.isFinite(rawSize) && Number.isFinite(left) ? Math.max(0, rawSize - left) : 0;
+      const filledQty = computeGateFilledQty(rawOrder.size, rawOrder.left);
+      // Absolute remaining quantity (sell orders report a negative `left`).
+      const left = rawOrder.left != null ? Math.abs(parseFloat(rawOrder.left)) : 0;
 
       // Resolve fillListener only when the order reaches a meaningful state:
       // - status 'finished'（终态：全部成交/取消/超时拒绝）→ 按实际成交量判定 filled/cancelled

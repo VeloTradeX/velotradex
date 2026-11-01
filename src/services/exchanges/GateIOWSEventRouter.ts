@@ -23,7 +23,9 @@
  * - Checks GateIOExchange.pendingOpenSymbols to avoid false close detection
  */
 
+import { Op } from 'sequelize';
 import logger, { formatError } from '../../utils/logger';
+import { StrategyPosition } from '../../models';
 import { OrderPersistenceHandler } from '../OrderPersistenceHandler';
 import auditService from '../AuditService';
 
@@ -338,6 +340,19 @@ export class GateIOWSEventRouter {
           });
         }
         logger.info(`[WSEventRouter] Marked ${orders.length} orders as CLOSED for ${symbol}`);
+
+        // Reconcile the position tracker too. Without this, a position closed by
+        // SL/TP/manual exit stays OPEN with its full remainingSize in the DB,
+        // and the UI keeps showing a phantom position.
+        try {
+          await StrategyPosition.update(
+            { status: 'CLOSED', remainingSize: '0', closedAt: now },
+            { where: { orderId: { [Op.in]: orders.map((order: any) => order.id) } } },
+          );
+        } catch (positionErr: any) {
+          logger.warn(`[WSEventRouter] Failed to close StrategyPosition rows for ${symbol}`, formatError(positionErr));
+        }
+
         for (const order of orders) {
           if (order.strategyId) {
             await auditService.log(order.strategyId, 'POSITION_CLOSED_WS', {

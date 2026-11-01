@@ -20,6 +20,14 @@ export interface ParsedStrategy {
   // For 'cancel'
   orderId?: string;
 
+  // Reply-chain target (filled by parsers that resolve Discord quotes).
+  // Used by management actions to target the original signal's position and,
+  // when the entry is still pending, to cancel the unfilled order instead.
+  referencedSymbol?: string;
+  replyStrategyId?: number;
+  replyOrderId?: number;
+  replyOrderStatus?: string;
+
   // For 'close'
   closePercentage?: number; // 0-100
   quantity?: number; // Raw contract count from signal, used when riskMode is ratio_based

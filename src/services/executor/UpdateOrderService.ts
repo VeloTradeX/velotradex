@@ -6,15 +6,20 @@ import { OrderResult } from '../exchanges/IExchange';
 import { ParsedStrategy, StrategyRiskConfig } from '../parsers/types';
 import { ExecutorServices, summarizeParsedForDebug } from './deps';
 import { ClosePositionService } from './ClosePositionService';
+import { PendingEntryService } from './PendingEntryService';
 
 const debugOrderUpdate = createNamedStageDebug('order', 'update');
 const debugOrderCancel = createNamedStageDebug('order', 'cancel');
 
 export class UpdateOrderService {
+  private readonly pendingEntryService: PendingEntryService;
+
   constructor(
     private readonly services: ExecutorServices,
     private readonly closePositionService: ClosePositionService,
-  ) {}
+  ) {
+    this.pendingEntryService = new PendingEntryService(services.exchangeRegistry, services.auditService);
+  }
 
   public async handleUpdate(parsed: ParsedStrategy, strategyId?: number, exchangeInstanceId?: string, source?: string, riskConfig?: StrategyRiskConfig): Promise<OrderResult | null> {
     logger.info('handleUpdate started', { strategyId, exchangeInstanceId, action: parsed.action, symbol: parsed.symbol, side: parsed.side, stopLoss: parsed.stopLoss });
@@ -136,6 +141,27 @@ export class UpdateOrderService {
     );
 
     if (!position) {
+        // A management signal (stop-to-entry / breakeven) for a position whose
+        // entry order has not filled yet must invalidate that pending entry:
+        // the trader already changed the plan, so filling hours later would
+        // open a position nobody is managing.
+        if (String(parsed.stopLoss || '').toLowerCase() === 'breakeven') {
+            const cancelled = await this.pendingEntryService.cancelUnfilledEntry({
+                parsed,
+                exchangeInstanceId,
+                strategyId,
+                reason: 'breakeven-update-before-entry-fill',
+            });
+            if (cancelled) {
+                logger.info('Cancelled unfilled entry because a breakeven update arrived before fill', {
+                    strategyId,
+                    symbol: parsed.symbol,
+                    exchangeOrderId: cancelled.id,
+                });
+                return cancelled;
+            }
+        }
+
         logger.warn(`Received UPDATE for ${parsed.symbol} but no active position found. Ignoring.`);
         debugOrderUpdate('skipped because no active position found %o', {
             strategyId,

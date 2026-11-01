@@ -7,8 +7,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import aiParserService from '../AIParserService';
 import marketService from '../MarketService';
-import { ImageDownloadCache } from '../../models';
+import { AILog, ImageDownloadCache } from '../../models';
 import { assertSafeFetchUrl } from '../../utils/ssrfProtection';
+import {
+    ReplyContext,
+    applyReplyTargetToResult,
+    buildManagementFallback,
+    formatReplyContextXml,
+    replyContextResolver,
+} from './ReplyContextResolver';
 import {
     extractEnglishText,
     isIgnorableMessage,
@@ -169,6 +176,32 @@ export class RaizexbtParser implements IStrategyParser {
             audit.englishText = englishText;
             addStep({ name: 'extract_english', inputLength: content.length, outputLength: englishText.length });
 
+            // 2.1 Resolve the Discord quote chain (reply target).
+            // Management messages ("stops to entry", "cutting here") are replies;
+            // without this the LLM has to guess the symbol (and guesses wrong).
+            let replyContext: ReplyContext | null = null;
+            try {
+                replyContext = await replyContextResolver.resolve(message);
+                if (replyContext.chain.length > 0) {
+                    addStep({
+                        name: 'reply_context',
+                        status: 'resolved',
+                        chainIds: replyContext.chain.map(item => item.id),
+                        originSymbol: replyContext.origin?.symbol || null,
+                        originStrategyId: replyContext.origin?.strategyId ?? null,
+                        originOrderId: replyContext.origin?.orderId ?? null,
+                        originLifecycle: replyContext.origin?.lifecycleStatus || null,
+                    });
+                    audit.replyContext = {
+                        chainIds: replyContext.chain.map(item => item.id),
+                        origin: replyContext.origin,
+                    };
+                }
+            } catch (error: any) {
+                logger.warn(`${this.logPrefix} Reply context resolution failed`, formatError(error));
+                addStep({ name: 'reply_context', status: 'error', error: error.message });
+            }
+
             // 3. Pre-filter obvious non-trading messages (save API cost)
             const hasImageAttachment = attachments.some((a: any) => a.is_image);
             if (!hasImageAttachment && isIgnorableMessage(englishText)) {
@@ -210,7 +243,7 @@ export class RaizexbtParser implements IStrategyParser {
                         sizeBytes: Math.round(imageBase64.length * 3 / 4),
                         durationMs: downloadMs,
                     });
-                    llmResult = await this.analyzeWithVision(message, englishText, imageBase64, (message as any).ts, audit, addStep);
+                    llmResult = await this.analyzeWithVision(message, englishText, imageBase64, (message as any).ts, audit, addStep, replyContext);
                 } else {
                     addStep({
                         name: 'image_download',
@@ -221,11 +254,11 @@ export class RaizexbtParser implements IStrategyParser {
                     });
                     // Image download failed, fall back to text-only
                     logger.warn(`${this.logPrefix} Image download failed, falling back to text-only analysis`);
-                    llmResult = await this.analyzeTextOnly(message, englishText, (message as any).ts, audit, addStep);
+                    llmResult = await this.analyzeTextOnly(message, englishText, (message as any).ts, audit, addStep, replyContext);
                 }
             } else {
                 // Text-only path
-                llmResult = await this.analyzeTextOnly(message, englishText, (message as any).ts, audit, addStep);
+                llmResult = await this.analyzeTextOnly(message, englishText, (message as any).ts, audit, addStep, replyContext);
             }
 
             // 5. Update context window (after analysis, so context doesn't include current message)
@@ -233,9 +266,46 @@ export class RaizexbtParser implements IStrategyParser {
                 this.addToContext(englishText, !!imageAttachment, (message as any).ts);
             }
 
+            // 5.1 Last-resort deterministic fallback: never silently drop close/BE
+            // management verbs when the LLM reply could not be parsed.
+            if (!llmResult) {
+                const fallback = buildManagementFallback(englishText, replyContext);
+                if (fallback) {
+                    llmResult = fallback;
+                    addStep({
+                        name: 'deterministic_fallback',
+                        status: 'used',
+                        action: fallback.action,
+                        symbol: fallback.symbol,
+                    });
+                    logger.warn(`${this.logPrefix} Used deterministic management fallback`, {
+                        action: fallback.action,
+                        symbol: fallback.symbol,
+                    });
+                }
+            }
+
             if (!llmResult) {
                 audit.outcome = audit.outcome || 'llm_returned_null';
+                logger.error(`${this.logPrefix} Dropped message after parse failure`, {
+                    messageId: msg.id,
+                    content: englishText.slice(0, 300),
+                });
                 return null;
+            }
+
+            // 5.2 Resolve target symbol/order from the reply chain for management actions.
+            if (replyContext?.origin) {
+                applyReplyTargetToResult(llmResult, englishText, replyContext);
+                addStep({
+                    name: 'apply_reply_target',
+                    status: 'applied',
+                    action: llmResult.action,
+                    symbol: llmResult.symbol,
+                    replyStrategyId: llmResult.replyStrategyId ?? null,
+                    replyOrderId: llmResult.replyOrderId ?? null,
+                    replyOrderStatus: llmResult.replyOrderStatus || null,
+                });
             }
 
             llmResult = this.normalizeLLMResultBeforeConvert(llmResult, message);
@@ -251,6 +321,15 @@ export class RaizexbtParser implements IStrategyParser {
 
             // 6. Convert LLM result to ParsedStrategy
             const strategies = convertToStrategies(llmResult, message, this.logPrefix);
+
+            if (strategies && strategies.length > 0 && llmResult.replyStrategyId != null) {
+                for (const strategy of strategies) {
+                    strategy.referencedSymbol = llmResult.referencedSymbol || undefined;
+                    strategy.replyStrategyId = llmResult.replyStrategyId ?? undefined;
+                    strategy.replyOrderId = llmResult.replyOrderId ?? undefined;
+                    strategy.replyOrderStatus = llmResult.replyOrderStatus || undefined;
+                }
+            }
 
             if (!strategies || strategies.length === 0) {
                 addStep({
@@ -334,14 +413,16 @@ export class RaizexbtParser implements IStrategyParser {
 
     protected async analyzeWithVision(
         rawMessage: any, text: string, imageBase64: string, ts: number,
-        audit: Record<string, any>, addStep: (step: Record<string, any>) => void
+        audit: Record<string, any>, addStep: (step: Record<string, any>) => void,
+        replyContext?: ReplyContext | null,
     ): Promise<LLMResult | null> {
         const positionsXml = await aiParserService.buildPositions(this.name);
         const marketPricesXml = await marketService.getCommonMarketPricesXml();
         const context = this.formatContextXML();
+        const replyXml = formatReplyContextXml(replyContext);
         const escapedText = escapeXML(text || '(no text, image only)');
 
-        const userTextPrompt = `${positionsXml}\n\n${marketPricesXml}\n\n${context}\n\n<current_message ts="${ts}">\n  <text>${escapedText}</text>\n  <image>attached (see image below)</image>\n</current_message>\n\n${MARKET_PRICE_RULES}\n\n${this.visionRules}\n\n${this.outputFormat}`;
+        const userTextPrompt = `${positionsXml}\n\n${marketPricesXml}\n\n${context}\n\n${replyXml ? `${replyXml}\n\n` : ''}<current_message ts="${ts}">\n  <text>${escapedText}</text>\n  <image>attached (see image below)</image>\n</current_message>\n\n${MARKET_PRICE_RULES}\n\n${this.visionRules}\n\n${this.outputFormat}`;
 
         const userContent: any[] = [
             { type: 'text', text: userTextPrompt },
@@ -358,6 +439,7 @@ export class RaizexbtParser implements IStrategyParser {
         let rawContent: string | null = null;
         let usage: any;
         let responseRaw: any;
+        let firstLogId: number | undefined;
         let successAttempt = 0;
         let lastError: any = null;
 
@@ -373,6 +455,7 @@ export class RaizexbtParser implements IStrategyParser {
                 if (!aiResponse) throw new Error('AI analysis disabled or returned null');
 
                 rawContent = aiResponse.content;
+                if (firstLogId == null) firstLogId = aiResponse.logId;
                 usage = aiResponse.usage;
                 responseRaw = aiResponse.raw;
                 successAttempt = attempt;
@@ -407,8 +490,10 @@ export class RaizexbtParser implements IStrategyParser {
         }
 
         const llmMs = Date.now() - llmStart;
-        const result = parseResponseContent(rawContent, usage, this.logPrefix);
-
+        let result = parseResponseContent(rawContent, usage, this.logPrefix);
+        if (!result) {
+            result = await this.repairJsonResponse(rawMessage, userContent, 'vision', addStep, firstLogId);
+        }
         addStep({
             name: 'llm_call',
             mode: 'vision',
@@ -441,14 +526,16 @@ export class RaizexbtParser implements IStrategyParser {
 
     protected async analyzeTextOnly(
         rawMessage: any, text: string, ts: number,
-        audit: Record<string, any>, addStep: (step: Record<string, any>) => void
+        audit: Record<string, any>, addStep: (step: Record<string, any>) => void,
+        replyContext?: ReplyContext | null,
     ): Promise<LLMResult | null> {
         const positionsXml = await aiParserService.buildPositions(this.name);
         const marketPricesXml = await marketService.getCommonMarketPricesXml();
         const context = this.formatContextXML();
+        const replyXml = formatReplyContextXml(replyContext);
         const escapedText = escapeXML(text);
 
-        const userPrompt = `${positionsXml}\n\n${marketPricesXml}\n\n${context}\n\n<current_message ts="${ts}">\n  <text>${escapedText}</text>\n</current_message>\n\n${MARKET_PRICE_RULES}\n\n${this.textRules}\n\n${this.outputFormat}`;
+        const userPrompt = `${positionsXml}\n\n${marketPricesXml}\n\n${context}\n\n${replyXml ? `${replyXml}\n\n` : ''}<current_message ts="${ts}">\n  <text>${escapedText}</text>\n</current_message>\n\n${MARKET_PRICE_RULES}\n\n${this.textRules}\n\n${this.outputFormat}`;
 
         logger.info(`${this.logPrefix} Sending text-only request to AIParserService`, { textLength: text.length });
 
@@ -457,6 +544,7 @@ export class RaizexbtParser implements IStrategyParser {
         let rawContent: string | null = null;
         let usage: any;
         let responseRaw: any;
+        let firstLogId: number | undefined;
         let successAttempt = 0;
         let lastError: any = null;
 
@@ -472,6 +560,7 @@ export class RaizexbtParser implements IStrategyParser {
                 if (!aiResponse) throw new Error('AI analysis disabled or returned null');
 
                 rawContent = aiResponse.content;
+                if (firstLogId == null) firstLogId = aiResponse.logId;
                 usage = aiResponse.usage;
                 responseRaw = aiResponse.raw;
                 successAttempt = attempt;
@@ -506,7 +595,10 @@ export class RaizexbtParser implements IStrategyParser {
         }
 
         const llmMs = Date.now() - llmStart;
-        const result = parseResponseContent(rawContent, usage, this.logPrefix);
+        let result = parseResponseContent(rawContent, usage, this.logPrefix);
+        if (!result) {
+            result = await this.repairJsonResponse(rawMessage, userPrompt, 'text', addStep, firstLogId);
+        }
 
         addStep({
             name: 'llm_call',
@@ -536,6 +628,77 @@ export class RaizexbtParser implements IStrategyParser {
 
         return result;
     }
+
+    /**
+     * One-shot JSON repair retry. Called only when the first response cannot
+     * be parsed even after extracting the first balanced object. The provider
+     * occasionally appends `<function...` tool-call leftovers; a stricter
+     * instruction usually fixes it. The failed call is marked in ai_logs so
+     * dropped messages are observable instead of silently succeeding.
+     */
+    private async repairJsonResponse(
+        rawMessage: any,
+        userContent: any,
+        mode: 'vision' | 'text',
+        addStep: (step: Record<string, any>) => void,
+        failedLogId?: number,
+    ): Promise<LLMResult | null> {
+        if (failedLogId != null) {
+            try {
+                await AILog.update(
+                    { status: 'parse_failed', error: 'LLM returned invalid JSON (repair retry attempted)' },
+                    { where: { id: failedLogId } },
+                );
+            } catch (error: any) {
+                logger.warn(`${this.logPrefix} Failed to mark ai_log as parse_failed`, formatError(error));
+            }
+        }
+
+        const instruction = 'IMPORTANT: your previous reply was not valid JSON. Return exactly one JSON object and nothing else. No markdown, no code block, no function calls, no trailing text.';
+        const hinted = Array.isArray(userContent)
+            ? [...userContent, { type: 'text', text: instruction }]
+            : `${userContent}\n\n${instruction}`;
+
+        logger.warn(`${this.logPrefix} LLM JSON parse failed; retrying once with JSON-only instruction`, { mode });
+
+        try {
+            const aiResponse = await aiParserService.analyzeRaw({
+                systemPrompt: `${this.systemPrompt} You must respond with exactly one JSON object and no other text.`,
+                userContent: hinted,
+                originalMessage: rawMessage,
+                timeout: 60000,
+            });
+            if (!aiResponse) {
+                addStep({ name: 'llm_json_repair', mode, status: 'empty_response' });
+                return null;
+            }
+
+            const result = parseResponseContent(aiResponse.content, aiResponse.usage, this.logPrefix);
+            if (!result && aiResponse.logId != null) {
+                try {
+                    await AILog.update(
+                        { status: 'parse_failed', error: 'LLM returned invalid JSON after repair retry' },
+                        { where: { id: aiResponse.logId } },
+                    );
+                } catch (logError: any) {
+                    logger.warn(`${this.logPrefix} Failed to mark repair ai_log as parse_failed`, formatError(logError));
+                }
+            }
+            addStep({
+                name: 'llm_json_repair',
+                mode,
+                status: result ? 'success' : 'failed',
+                rawResponse: String(aiResponse.content || '').slice(0, 500),
+            });
+            return result;
+        } catch (error: any) {
+            addStep({ name: 'llm_json_repair', mode, status: 'error', error: error.message });
+            logger.warn(`${this.logPrefix} JSON repair retry failed`, formatError(error));
+            return null;
+        }
+    }
+
+
 
     // ─── Image Download ─────────────────────────────────────────────────────
 
