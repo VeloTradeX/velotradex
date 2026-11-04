@@ -8,6 +8,7 @@ import aiParserService from './services/AIParserService';
 import { createNamedStageDebug, createStageDebug, summarizeDebugMessage } from './utils/debug';
 import { summarizeParsedStrategy, summarizeRoute } from './messageHelpers';
 import { processStrategiesForParser } from './strategyProcessor';
+import priceSnapshotService from './services/PriceSnapshotService';
 
 const debugMessage = createStageDebug('message');
 const debugRouting = createStageDebug('routing');
@@ -41,6 +42,10 @@ export async function handleChannelMessage(message: any): Promise<void> {
       routeCount: routes.length,
       routes: routes.map(summarizeRoute),
     });
+
+    // Capture the receipt-time price before image download / LLM parsing adds
+    // seconds of latency. The executor uses it for the market-vs-limit decision.
+    priceSnapshotService.captureForMessage(message, routes);
 
     // Group routes by Parser to handle potentially different parsers for same channel.
     // Some parsers need route-scoped context, so those are intentionally split per route.

@@ -98,7 +98,7 @@ export class RaizexbtParser implements IStrategyParser {
             riskMode: 'fixed',
             riskValue: 10,
             defaultLeverage: '20',
-            priceTolerance: 0.01, // 0.01R
+            priceTolerance: 0.1, // 0.1R (fast-market tolerance; route riskSettings can override)
             entryOrderMode: 'taker',
             tpDistribution: [0.5, 0.3, 0.2],
             tpOrderType: 'limit',

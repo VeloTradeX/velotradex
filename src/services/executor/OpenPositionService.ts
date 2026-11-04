@@ -12,6 +12,8 @@ import { CfdLegPlanner } from '../exchanges/gate_cfd/CfdLegPlanner';
 import { parsePositiveAmount, parseFinitePositiveNumber, isCmpEntryPrice, isFilledOrderStatus, formatExecutionNumber, roundToPrecision } from '../TradeMath';
 import { buildCmpResolvedOpenStrategy, rejectOpenStrategy, validateOpenSignal, validateStaticOpenSignal, normalizeDisplayPriceScale } from '../OpenSignalValidator';
 import { applyOpenPriceAdjustments } from '../OpenPriceAdjustment';
+import priceSnapshotService from '../PriceSnapshotService';
+import { isMarketEntryPrice, selectEntryDecisionPrice } from '../EntryDecision';
 import { ExecutorServices, ExecutorCapabilities, summarizeParsedForDebug } from './deps';
 import { ClosePositionService } from './ClosePositionService';
 import cfdPriceSyncService from '../CfdPriceSyncService';
@@ -669,20 +671,22 @@ export class OpenPositionService {
     const toleranceR = riskConfig.priceTolerance || 0.01; // Default 0.01R
     const tolerance = R * toleranceR; // Convert R multiplier to absolute price tolerance
 
-    // Market Order Condition
-    let isMarket = false;
-    if (isLong) {
-        if (currentPrice <= entryPrice) {
-            isMarket = true;
-        } else if ((currentPrice - entryPrice) <= tolerance) {
-            isMarket = true;
-        }
-    } else {
-        if (currentPrice >= entryPrice) {
-            isMarket = true;
-        } else if ((entryPrice - currentPrice) <= tolerance) {
-            isMarket = true;
-        }
+    // Use the price captured at message receipt when available: image download +
+    // LLM parsing can take several seconds, during which a fast market can move
+    // the entry decision from "within tolerance" to "outside tolerance".
+    const receiptSnapshot = await priceSnapshotService.resolve(normalizedParsed.raw, normalizedParsed.symbol);
+    const decision = selectEntryDecisionPrice(currentPrice, receiptSnapshot?.price);
+    const decisionPrice = decision.price;
+
+    const isMarket = isMarketEntryPrice({
+        side: isLong ? 'buy' : 'sell',
+        currentPrice: decisionPrice,
+        entryPrice,
+        tolerance,
+    });
+
+    if (receiptSnapshot) {
+        logger.info(`Entry decision price: ${decisionPrice} (source=${decision.source}, live=${currentPrice}, snapshotAge=${receiptSnapshot.ageMs}ms)`);
     }
 
     if (cmpEntry) {
@@ -692,9 +696,9 @@ export class OpenPositionService {
     } else if (isMarket) {
         orderType = 'market';
         orderPrice = undefined;
-        logger.info(`Price condition met for MARKET order. Current: ${currentPrice}, Target: ${entryPrice}, Tolerance: ${tolerance.toFixed(4)} (${toleranceR}R)`);
+        logger.info(`Price condition met for MARKET order. Decision: ${decisionPrice} (${decision.source}), Live: ${currentPrice}, Target: ${entryPrice}, Tolerance: ${tolerance.toFixed(4)} (${toleranceR}R)`);
     } else {
-        logger.info(`Price outside tolerance, using LIMIT order. Current: ${currentPrice}, Target: ${entryPrice}, Tolerance: ${tolerance.toFixed(4)} (${toleranceR}R)`);
+        logger.info(`Price outside tolerance, using LIMIT order. Decision: ${decisionPrice} (${decision.source}), Live: ${currentPrice}, Target: ${entryPrice}, Tolerance: ${tolerance.toFixed(4)} (${toleranceR}R)`);
     }
 
     const entryPostOnly = orderType === 'limit' && entryOrderMode === 'maker';
@@ -711,13 +715,16 @@ export class OpenPositionService {
         entryOrderMode,
         entryPostOnly,
         currentPrice,
+        decisionPrice,
+        decisionSource: decision.source,
+        snapshotAgeMs: receiptSnapshot?.ageMs ?? null,
         targetEntryPrice: entryPrice,
         tolerance,
         toleranceR,
         cmpEntry,
     });
     logger.info('Entry order type resolved', {
-      orderType, currentPrice, entryPrice, cmpEntry, tolerance,
+      orderType, currentPrice, decisionPrice, decisionSource: decision.source, entryPrice, cmpEntry, tolerance,
     });
 
     // 6. Duplicate Check
