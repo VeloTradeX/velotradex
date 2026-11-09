@@ -118,6 +118,13 @@ export interface StrategyRiskConfig {
   // 0 or undefined = no merging. Default per-parser.
   entryMergeThresholdR?: number;
 
+  // 迟到入场（市价追单）风险重锚：
+  // true  = 市价追单时用实际执行价重算 R，仓位/TP padding 按新 R 计算（SL/TP 绝对价保持信号原值）；
+  // false/undefined = 保持历史行为（仓位始终按信号入场价计算）。
+  reanchorEntryOnChase?: boolean;
+  // 追单重锚后要求的最低剩余盈亏比 |TP - entry| / |entry - SL|；null/undefined = 不校验。
+  minEntryRR?: number | null;
+
   // Conflict Handling
   autoCloseOppositePosition?: boolean; // If true, closes existing opposite position before opening new one (One-way mode simulation)
 

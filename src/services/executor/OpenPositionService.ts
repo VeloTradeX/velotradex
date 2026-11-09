@@ -13,7 +13,7 @@ import { parsePositiveAmount, parseFinitePositiveNumber, isCmpEntryPrice, isFill
 import { buildCmpResolvedOpenStrategy, rejectOpenStrategy, validateOpenSignal, validateStaticOpenSignal, normalizeDisplayPriceScale } from '../OpenSignalValidator';
 import { applyOpenPriceAdjustments } from '../OpenPriceAdjustment';
 import priceSnapshotService from '../PriceSnapshotService';
-import { isMarketEntryPrice, selectEntryDecisionPrice } from '../EntryDecision';
+import { classifyEntryDecision, planChaseReanchor, selectEntryDecisionPrice } from '../EntryDecision';
 import { ExecutorServices, ExecutorCapabilities, summarizeParsedForDebug } from './deps';
 import { ClosePositionService } from './ClosePositionService';
 import cfdPriceSyncService from '../CfdPriceSyncService';
@@ -643,7 +643,7 @@ export class OpenPositionService {
             reason: `Invalid open strategy price adjustment: ${adjustment.invalidReason}`,
         });
     }
-    const entryPrice = adjustment.entryPrice;
+    let entryPrice = adjustment.entryPrice;
     const stopLoss = adjustment.stopLoss;
     takeProfit = adjustment.takeProfit;
 
@@ -678,12 +678,13 @@ export class OpenPositionService {
     const decision = selectEntryDecisionPrice(currentPrice, receiptSnapshot?.price);
     const decisionPrice = decision.price;
 
-    const isMarket = isMarketEntryPrice({
+    const entryDecision = classifyEntryDecision({
         side: isLong ? 'buy' : 'sell',
         currentPrice: decisionPrice,
         entryPrice,
         tolerance,
     });
+    const isMarket = entryDecision.isMarket;
 
     if (receiptSnapshot) {
         logger.info(`Entry decision price: ${decisionPrice} (source=${decision.source}, live=${currentPrice}, snapshotAge=${receiptSnapshot.ageMs}ms)`);
@@ -726,6 +727,80 @@ export class OpenPositionService {
     logger.info('Entry order type resolved', {
       orderType, currentPrice, decisionPrice, decisionSource: decision.source, entryPrice, cmpEntry, tolerance,
     });
+
+    // 5.1 迟到入场重锚：仅对“尚未穿过入场价、但在容忍度内”的市价追单生效。
+    // 价格已穿过入场价（passed_entry）时原限价单本应成交，保持历史行为，
+    // 避免 R 变小后仓位被放大。重锚只影响风险/仓位与 TP 的 R padding，
+    // SL/TP 的绝对价位仍使用博主原值。
+    if (riskConfig.reanchorEntryOnChase === true
+        && orderType === 'market'
+        && !cmpEntry
+        && entryDecision.reason === 'within_tolerance'
+        && Number.isFinite(stopLoss)
+        && stopLoss > 0
+        && Number.isFinite(R)
+        && R > 0) {
+        const signalEntryPrice = entryPrice;
+        const reanchor = planChaseReanchor({
+            side: isLong ? 'buy' : 'sell',
+            executionEntryPrice: currentPrice,
+            stopLoss,
+            target: takeProfit,
+            minEntryRR: riskConfig.minEntryRR,
+        });
+        if (reanchor.invalidReason) {
+            await rejectOpenStrategy(this.services.auditService, strategyId, exchangeInstanceId, {
+                symbol: normalizedParsed.symbol,
+                side: normalizedParsed.side,
+                entryPrice: normalizedParsed.entryPrice,
+                stopLoss: normalizedParsed.stopLoss,
+                currentPrice,
+                field: 'entryChase',
+                reason: `Chase re-anchor rejected: ${reanchor.invalidReason}`,
+            });
+        }
+
+        entryPrice = reanchor.entryPrice;
+        const deviationR = entryDecision.deviation / R;
+        logger.info(`Late entry re-anchored: signal=${signalEntryPrice.toFixed(4)}, execution=${entryPrice.toFixed(4)}, R ${R.toFixed(2)} -> ${reanchor.R.toFixed(2)}, RR=${reanchor.rewardRisk != null ? reanchor.rewardRisk.toFixed(2) : 'n/a'}`);
+        debugOrderOpen('late entry re-anchored %o', {
+            strategyId,
+            routeId,
+            exchangeInstanceId,
+            symbol: normalizedParsed.symbol,
+            side: normalizedParsed.side,
+            signalEntryPrice,
+            executionEntryPrice: entryPrice,
+            decisionPrice,
+            decisionSource: decision.source,
+            snapshotAgeMs: receiptSnapshot?.ageMs ?? null,
+            stopLoss,
+            takeProfit: takeProfit ?? null,
+            signalR: R,
+            effectiveR: reanchor.R,
+            deviationR,
+            rewardRisk: reanchor.rewardRisk,
+            minEntryRR: riskConfig.minEntryRR ?? null,
+        });
+        if (strategyId) {
+            await this.services.auditService.log(strategyId, 'ENTRY_CHASE_REANCHORED', {
+                symbol: normalizedParsed.symbol,
+                side: normalizedParsed.side,
+                signalEntryPrice,
+                executionEntryPrice: entryPrice,
+                stopLoss,
+                takeProfit: takeProfit ?? null,
+                signalR: R,
+                effectiveR: reanchor.R,
+                deviationR,
+                rewardRisk: reanchor.rewardRisk,
+                minEntryRR: riskConfig.minEntryRR ?? null,
+                decisionPrice,
+                decisionSource: decision.source,
+                snapshotAgeMs: receiptSnapshot?.ageMs ?? null,
+            }, undefined, undefined, exchangeInstanceId);
+        }
+    }
 
     // 6. Duplicate Check
     let duplicateOrder: any = undefined;

@@ -104,7 +104,10 @@ export class RaizexbtParser implements IStrategyParser {
             tpOrderType: 'limit',
             tpOrderMode: 'maker',
             autoCloseOppositePosition: true,
-            positionSizingMode: 'risk_based'
+            positionSizingMode: 'risk_based',
+            // 迟到入场：市价追单时按实际执行价重算 R/仓位，避免实际风险超出预算。
+            reanchorEntryOnChase: true,
+            minEntryRR: 1.2
         };
     }
 

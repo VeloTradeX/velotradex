@@ -144,6 +144,41 @@ describe('TradeExecutor virtual exchange route', () => {
     );
   });
 
+  it('re-anchors sizing to the execution price for a within-tolerance chase', async () => {
+    // Signal buy 64800 / SL 64000 (signal R=800). Live 65000 is 200 = 0.25R
+    // away, inside the 0.3R chase tolerance, so the entry becomes market.
+    // Sizing must use R=1000 (live entry vs signal SL), not the signal R=800.
+    const result = await (tradeExecutor as any).handleOpen(
+      { action: 'open', symbol: 'BTC_USDT', side: 'buy', entryPrice: '64800', stopLoss: '64000', targets: ['67000'], raw: {} },
+      {
+        riskMode: 'fixed',
+        riskValue: 100,
+        defaultLeverage: '1',
+        priceTolerance: 0.3,
+        entryPaddingR: 0,
+        tpPaddingR: 0,
+        slPaddingR: 0,
+        reanchorEntryOnChase: true,
+        minEntryRR: 1.2,
+      },
+      'virtual-test',
+      124,
+      'virtual_1',
+      78,
+    );
+
+    expect(result).toEqual(expect.objectContaining({ id: 'vo-1', status: 'filled' }));
+    expect(exchange.placeOrder).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'market',
+      amount: '1000',
+    }));
+    expect(Order.create).toHaveBeenCalledWith(expect.objectContaining({
+      amount: '1000',
+      // Order.price keeps the signal entry so entry slippage stays measurable.
+      price: '64800',
+    }));
+  });
+
   it('runs REST reconcile for local pending Lighter orders immediately after WS reconnect', async () => {
     const pendingOrder = {
       id: 430,
