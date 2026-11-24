@@ -68,8 +68,14 @@ describe('Raizexbt partial-exit conversion', () => {
 
     const strategies = convertToStrategies(result, partialOnly, 'test');
 
-    expect(strategies).toHaveLength(1);
-    expect(strategies?.[0].closePercentage).toBe(50);
+    // 部分平仓自动附带 BE 管理策略（并在执行层保留剩余仓位的保护单）
+    expect(strategies).toHaveLength(2);
+    expect(strategies?.[0]).toMatchObject({
+      action: 'close',
+      closePercentage: 50,
+      keepPartialProtections: true,
+    });
+    expect(strategies?.[1]).toMatchObject({ action: 'update', stopLoss: 'breakeven', breakevenMode: 'protect' });
   });
 
   it('keeps an explicit percentage from the message', () => {

@@ -79,7 +79,14 @@ describe('raizexbt stop-to-entry (breakeven) detection', () => {
     it('turns a chart-signal open into an update+breakeven for "Stops entry"', () => {
       const strategies = convertToStrategies(result(), message('Stops entry'), 'test:');
       expect(strategies).toEqual([
-        { action: 'update', symbol: 'BTC_USDT', stopLoss: 'breakeven', raw: expect.any(Object) },
+        {
+          action: 'update',
+          symbol: 'BTC_USDT',
+          side: 'sell',
+          stopLoss: 'breakeven',
+          breakevenMode: 'protect',
+          raw: expect.any(Object),
+        },
       ]);
     });
 
@@ -119,7 +126,14 @@ describe('raizexbt stop-to-entry (breakeven) detection', () => {
         'test:'
       );
       expect(strategies).toEqual([
-        { action: 'update', symbol: 'BTC_USDT', stopLoss: 'breakeven', raw: expect.any(Object) },
+        {
+          action: 'update',
+          symbol: 'BTC_USDT',
+          side: 'sell',
+          stopLoss: 'breakeven',
+          breakevenMode: 'protect',
+          raw: expect.any(Object),
+        },
       ]);
     });
   });

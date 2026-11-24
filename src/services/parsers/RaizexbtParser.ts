@@ -25,6 +25,15 @@ import {
     buildDedupInfo
 } from './RaizexbtTextMatchers';
 import {
+    RISK_NOTE_WINDOW_MS,
+    detectStandaloneRiskNote,
+    isCancelEntryIntent,
+    isCuttingEntryIntent,
+    isFullCloseExpectation,
+    isOneRManagementPlan,
+    type StandaloneRiskNote,
+} from './RaizexbtRiskRules';
+import {
     LLMResult,
     SYSTEM_PROMPT,
     VISION_RULES,
@@ -69,6 +78,12 @@ export class RaizexbtParser implements IStrategyParser {
     protected lastParsedStrategies: Map<string, ParsedStrategy[]> = new Map();
     protected readonly DEDUP_WINDOW_MS = 1000 * 60 * 10; // 10 min
 
+    // ── 半 R 规则（raizexbt 频道专有，其他解析器不使用）────────────────────
+    // 交易员会在开仓后几秒补一条独立的 "0.5R" / "0.3R" / "low risk" 风险便签，
+    // 表示该单要缩到目标 R；偶尔也会先发风险便签、紧接着发开仓信号。
+    protected lastOpenSignal: { symbol: string; side?: 'buy' | 'sell'; ts: number } | null = null;
+    protected pendingRiskNote: { multiplier: number; ts: number; sourceMessageId?: string; label: string } | null = null;
+
     // TODO: Debug logging - 记录原始消息、提示词和 LLM 解析结果到 JSONL 文件，后续删除
     protected readonly DEBUG_LOG_DIR: string;
 
@@ -111,7 +126,23 @@ export class RaizexbtParser implements IStrategyParser {
         };
     }
 
-    public async parse(message: any, isDryRun: boolean = false): Promise<ParsedStrategy[] | null> {
+    /**
+     * 串行化入口：频道消息必须按到达顺序解析。
+     * 半 R 规则（风险便签↔开仓信号配对）、去重、上下文窗口都依赖严格顺序；
+     * 并发解析（Redis pub/sub 回调不等待）会让「先信号、几秒后 0.5R」的配对失败。
+     */
+    private parseQueue: Promise<unknown> = Promise.resolve();
+
+    public parse(message: any, isDryRun: boolean = false): Promise<ParsedStrategy[] | null> {
+        const run = this.parseQueue.then(
+            () => this.parseInternal(message, isDryRun),
+            () => this.parseInternal(message, isDryRun),
+        );
+        this.parseQueue = run.then(() => undefined, () => undefined);
+        return run;
+    }
+
+    protected async parseInternal(message: any, isDryRun: boolean): Promise<ParsedStrategy[] | null> {
         const msg = message as DiscordMessage;
         const content = msg.content || '';
         const attachments: any[] = (message as any).attachments || [];
@@ -205,9 +236,85 @@ export class RaizexbtParser implements IStrategyParser {
                 addStep({ name: 'reply_context', status: 'error', error: error.message });
             }
 
-            // 3. Pre-filter obvious non-trading messages (save API cost)
+            // 2.2 半 R 规则：识别「独立风险便签」（0.5R / .5R / low risk / risky / 0.3-0.5R ...）
+            // 这类消息本身不是开仓信号：要么缩放到前一条仓位，要么暂存给下一条开仓信号。
+            const messageTs = this.resolveMessageTs(message);
             const hasImageAttachment = attachments.some((a: any) => a.is_image);
-            if (!hasImageAttachment && isIgnorableMessage(englishText)) {
+            const riskNote: StandaloneRiskNote | null = detectStandaloneRiskNote(englishText);
+            let llmResult: LLMResult | null = null;
+            let skipLLM = false;
+
+            if (riskNote) {
+                addStep({
+                    name: 'risk_note',
+                    status: 'detected',
+                    multiplier: riskNote.multiplier,
+                    label: riskNote.label,
+                    hasImage: hasImageAttachment,
+                });
+                if (!hasImageAttachment) {
+                    const target = this.resolveRiskNoteTarget(replyContext, messageTs);
+                    if (target) {
+                        // 有明确目标（引用链 / 120 秒内的上一条开仓）→ 直接生成「缩放到目标 R」
+                        // 的管理策略，不调用 LLM（避免 LLM 把它误判成新开仓）。
+                        llmResult = {
+                            action: 'update',
+                            symbol: target.symbol,
+                            side: target.side,
+                            riskMultiplier: riskNote.multiplier,
+                            riskResize: true,
+                            confidence: 0.99,
+                            reasoning: `Half-R rule: resize position/order to ${riskNote.multiplier}R (${riskNote.label}).`,
+                            referencedSymbol: target.symbol,
+                            replyStrategyId: target.replyStrategyId ?? null,
+                            replyOrderId: target.replyOrderId ?? null,
+                            replyOrderStatus: target.replyOrderStatus ?? null,
+                        };
+                        skipLLM = true;
+                        addStep({
+                            name: 'half_r_resize',
+                            status: 'applied',
+                            symbol: target.symbol,
+                            side: target.side ?? null,
+                            multiplier: riskNote.multiplier,
+                        });
+                    } else {
+                        // 没有近邻目标 → 暂存给下一条开仓信号（窗口 120 秒）。
+                        // 注意：具体数字便签（0.3R / 0.3-0.5R）优先于泛化措辞（low risk）；
+                        // 例如 "Low risk> 0.3-0.5R only" 紧跟 "Low risk again" 时，应保留 0.3。
+                        const genericLabels = new Set(['risk-word']);
+                        const existing = this.pendingRiskNote
+                            && Math.abs(messageTs - this.pendingRiskNote.ts) <= RISK_NOTE_WINDOW_MS
+                            ? this.pendingRiskNote
+                            : null;
+                        const keepExisting = !!existing
+                            && genericLabels.has(riskNote.label)
+                            && !genericLabels.has(existing.label);
+                        if (!keepExisting) {
+                            this.pendingRiskNote = {
+                                multiplier: riskNote.multiplier,
+                                ts: messageTs,
+                                sourceMessageId: msg.id,
+                                label: riskNote.label,
+                            };
+                        }
+                        addStep({
+                            name: 'risk_note',
+                            status: 'deferred_to_next_open',
+                            multiplier: keepExisting ? existing!.multiplier : riskNote.multiplier,
+                            keptPriorSpecificNote: keepExisting,
+                        });
+                        if (!isDryRun) {
+                            this.addToContext(englishText, false, (message as any).ts);
+                        }
+                        audit.outcome = 'risk_note_deferred';
+                        return null;
+                    }
+                }
+            }
+
+            // 3. Pre-filter obvious non-trading messages (save API cost)
+            if (!skipLLM && !hasImageAttachment && isIgnorableMessage(englishText)) {
                 logger.debug(`${this.logPrefix} Pre-filtered ignorable message`, { text: englishText });
                 addStep({ name: 'pre_filter', status: 'filtered', reason: 'isIgnorableMessage' });
                 audit.outcome = 'pre_filtered';
@@ -220,18 +327,19 @@ export class RaizexbtParser implements IStrategyParser {
             addStep({ name: 'pre_filter', status: 'pass' });
 
             // 4. Call LLM via AIParserService
-            if (!aiParserService.isConfigured()) {
+            if (!skipLLM && !aiParserService.isConfigured()) {
                 logger.warn(`${this.logPrefix} AIParserService not configured, skipping`);
                 addStep({ name: 'llm_client_check', status: 'not_configured' });
                 audit.outcome = 'client_not_configured';
                 return null;
             }
 
-            let llmResult: LLMResult | null = null;
             const imageAttachment = attachments.find((a: any) => a.is_image);
             audit.hasImage = !!imageAttachment;
 
-            if (imageAttachment) {
+            if (skipLLM) {
+                addStep({ name: 'llm_call', mode: 'skipped', status: 'deterministic_half_r' });
+            } else if (imageAttachment) {
                 // Vision path: download image and analyze with VLM
                 const imageUrl = imageAttachment.proxy_url || imageAttachment.url;
                 const downloadStart = Date.now();
@@ -297,6 +405,27 @@ export class RaizexbtParser implements IStrategyParser {
                 return null;
             }
 
+            // 5.15 频道确定性规则覆盖（在 LLM 输出之上兜底）：
+            // - 风险便签 + 图表 = 以该风险倍数开仓；
+            // - 待配对的半 R 便签 → 应用到本条开仓；
+            // - 取消/剪切入场、期望性措辞、1R 管理计划。
+            if (!skipLLM) {
+                const overridden = this.applyDeterministicOverrides(llmResult, {
+                    englishText,
+                    riskNote,
+                    hasImage: !!imageAttachment,
+                    replyContext,
+                    messageTs,
+                    addStep,
+                });
+                if (!overridden) {
+                    audit.outcome = 'deterministic_override_dropped';
+                    addStep({ name: 'deterministic_override', status: 'dropped' });
+                    return null;
+                }
+                llmResult = overridden;
+            }
+
             // 5.2 Resolve target symbol/order from the reply chain for management actions.
             if (replyContext?.origin) {
                 applyReplyTargetToResult(llmResult, englishText, replyContext);
@@ -324,6 +453,22 @@ export class RaizexbtParser implements IStrategyParser {
 
             // 6. Convert LLM result to ParsedStrategy
             const strategies = convertToStrategies(llmResult, message, this.logPrefix);
+
+            // 半 R 规则：记录最近一条开仓信号，供紧随其后的风险便签配对。
+            const openStrategy = strategies?.find(strategy => strategy.action === 'open');
+            if (openStrategy) {
+                this.lastOpenSignal = {
+                    symbol: openStrategy.symbol,
+                    side: openStrategy.side,
+                    ts: messageTs,
+                };
+                addStep({
+                    name: 'last_open_signal',
+                    status: 'tracked',
+                    symbol: openStrategy.symbol,
+                    side: openStrategy.side ?? null,
+                });
+            }
 
             if (strategies && strategies.length > 0 && llmResult.replyStrategyId != null) {
                 for (const strategy of strategies) {
@@ -809,6 +954,147 @@ export class RaizexbtParser implements IStrategyParser {
     }
 
     // ─── Helpers ────────────────────────────────────────────────────────────
+
+    // ─── Half-R / deterministic channel rules ───────────────────────────────
+
+    protected resolveMessageTs(message: any): number {
+        const raw = (message as any)?.ts ?? (message as any)?.timestamp;
+        const numeric = typeof raw === 'number' ? raw : Number(new Date(raw));
+        return Number.isFinite(numeric) && numeric > 0 ? numeric : Date.now();
+    }
+
+    /**
+     * 风险便签（0.5R / low risk ...）的归属目标：
+     * 1) 明确回复的开仓信号（reply context，不受时间窗口限制）；
+     * 2) 120 秒内最近的一条开仓信号；
+     * 否则返回 null，由调用方暂存给下一条开仓信号。
+     */
+    protected resolveRiskNoteTarget(
+        replyContext: ReplyContext | null,
+        messageTs: number,
+    ): {
+        symbol: string;
+        side?: 'buy' | 'sell';
+        replyStrategyId?: number | null;
+        replyOrderId?: number | null;
+        replyOrderStatus?: string | null;
+    } | null {
+        const origin = replyContext?.origin;
+        if (origin?.symbol) {
+            const originSide = origin.side === 'buy' || origin.side === 'sell' ? origin.side : undefined;
+            return {
+                symbol: origin.symbol,
+                side: originSide,
+                replyStrategyId: origin.strategyId,
+                replyOrderId: origin.orderId,
+                replyOrderStatus: origin.lifecycleStatus,
+            };
+        }
+
+        const last = this.lastOpenSignal;
+        if (!last) return null;
+        if (Math.abs(messageTs - last.ts) > RISK_NOTE_WINDOW_MS) return null;
+        return {
+            symbol: last.symbol,
+            side: last.side,
+            replyStrategyId: null,
+            replyOrderId: null,
+            replyOrderStatus: null,
+        };
+    }
+
+    /**
+     * LLM 输出之后的确定性覆盖（raizexbt 频道专有语义）。
+     * 只调整/补全 LLM 结果，不改变其他解析器路径。
+     */
+    protected applyDeterministicOverrides(
+        result: LLMResult,
+        params: {
+            englishText: string;
+            riskNote: StandaloneRiskNote | null;
+            hasImage: boolean;
+            replyContext: ReplyContext | null;
+            messageTs: number;
+            addStep: (step: Record<string, any>) => void;
+        },
+    ): LLMResult | null {
+        const { englishText, riskNote, hasImage, replyContext, messageTs, addStep } = params;
+        let next: LLMResult = { ...result };
+
+        // (a) 风险便签 + 图表：以该风险倍数开仓（如 "0.3R" + 完整图表）。
+        if (riskNote && hasImage && next.action === 'open') {
+            next.riskMultiplier = riskNote.multiplier;
+            addStep({
+                name: 'deterministic_override',
+                rule: 'risk_note_with_chart',
+                riskMultiplier: riskNote.multiplier,
+            });
+        }
+
+        // (b) 待配对的半 R 便签 → 应用到本条开仓信号。
+        if (!riskNote && next.action === 'open' && this.pendingRiskNote) {
+            const age = Math.abs(messageTs - this.pendingRiskNote.ts);
+            if (age <= RISK_NOTE_WINDOW_MS) {
+                next.riskMultiplier = this.pendingRiskNote.multiplier;
+                addStep({
+                    name: 'deterministic_override',
+                    rule: 'pending_half_r_applied',
+                    riskMultiplier: this.pendingRiskNote.multiplier,
+                    sourceMessageId: this.pendingRiskNote.sourceMessageId ?? null,
+                });
+            } else {
+                addStep({
+                    name: 'risk_note',
+                    status: 'expired',
+                    ageMs: age,
+                });
+            }
+            this.pendingRiskNote = null;
+        }
+
+        // (c) 取消挂单 / 剪切入场（仅在明确回复某条开仓信号时生效）。
+        if (isCancelEntryIntent(englishText) && replyContext?.origin?.symbol) {
+            const origin = replyContext.origin;
+            const originSymbol = String(origin.symbol);
+            const lifecycle = String(origin.lifecycleStatus || '').toUpperCase();
+            const isPendingEntry = lifecycle === 'INIT' || lifecycle === 'PENDING';
+            if (isCuttingEntryIntent(englishText) && !isPendingEntry) {
+                // 已成交：平掉持仓；未成交时由执行层自动撤单。
+                next = {
+                    ...next,
+                    action: 'close',
+                    symbol: originSymbol,
+                    closePercentage: 100,
+                    stopLoss: null,
+                    closePrice: null,
+                };
+                addStep({ name: 'deterministic_override', rule: 'cutting_entry_close', symbol: origin.symbol });
+            } else {
+                next = { ...next, action: 'cancel', symbol: originSymbol };
+                addStep({ name: 'deterministic_override', rule: 'cancel_pending_entry', symbol: origin.symbol });
+            }
+        }
+
+        // (d) 期望性措辞（"full tp soon" / "stops alr flat"）不是指令。
+        if (isFullCloseExpectation(englishText) && (next.action === 'close' || next.action === 'update')) {
+            next = { ...next, action: 'ignore', closePercentage: null, closePrice: null, stopLoss: null, targets: [] };
+            addStep({ name: 'deterministic_override', rule: 'full_close_expectation_ignored' });
+        }
+
+        // (e) 1R 管理计划：到 1R 平 50% 并移保本（执行层加挂 reduce-only 限价止盈单）。
+        if (isOneRManagementPlan(englishText) && next.action !== 'cancel') {
+            next = {
+                ...next,
+                action: 'update',
+                stopLoss: null,
+                planRMultiple: 1,
+                planClosePercentage: 50,
+            };
+            addStep({ name: 'deterministic_override', rule: 'one_r_management_plan' });
+        }
+
+        return next;
+    }
 
     protected normalizeLLMResultBeforeConvert(result: LLMResult, _rawMessage: any): LLMResult | null {
         return result;

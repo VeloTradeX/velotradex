@@ -31,7 +31,8 @@
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
     "format": "prettier --write \"**/*.{ts,js,json,cjs,md}\"",
-    "format:check": "prettier --check \"**/*.{ts,js,json,cjs}\""
+    "format:check": "prettier --check \"**/*.{ts,js,json,cjs}\"",
+    "replay:raizexbt": "ts-node scripts/raizexbt-ncol-replay.ts"
   },
   "engines": {
     "node": ">=20"

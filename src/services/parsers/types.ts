@@ -49,6 +49,47 @@ export interface ParsedStrategy {
   // （用于事后排查，写入 strategy.signalOrigin）。
   sourceType?: 'text' | 'image' | 'text_inferred';
 
+  // ── 频道级风险管理机制（仅 Raizexbt 等显式设置的解析器会填写；────────────
+  // ── 其他解析器不设置这些字段时，执行层行为与改动前完全一致。────────────
+
+  /**
+   * update 专用：按本策略的 `riskMultiplier` 把「目标仓位/挂单」缩放到目标 R 倍数。
+   * 执行层行为：
+   * - 已有持仓：市价部分平仓，使剩余仓位对应目标 R（比例按当前剩余仓位计算）；
+   * - 只有未成交挂单：amend 挂单数量到目标 R；
+   * - 两者都没有：安全跳过（返回 null）。
+   */
+  riskResize?: boolean;
+
+  /**
+   * update 专用（stopLoss='breakeven' 时生效）：
+   * - 'protect'（默认）：保护性移到保本。若执行时价格已在浮亏侧，则恢复原止损，
+   *   绝不市价全平；
+   * - 'exit_at_entry'：交易员语义是「回到入场价就平仓」。若执行时已浮亏，
+   *   改为在入场价挂 reduce-only 限价平仓单（回本平仓），保留原止损。
+   */
+  breakevenMode?: 'protect' | 'exit_at_entry';
+
+  /**
+   * update 专用：在入场价 ± planRMultiple × R 的价位，为现有持仓加挂
+   * `planClosePercentage`（默认 50%）的 reduce-only 限价止盈单；
+   * 成交后由 TP1 成交→移 BE 的既有链路自动移保本。
+   */
+  planRMultiple?: number;
+  planClosePercentage?: number;
+
+  /** open 专用：开启「近似重复开仓」拦截（同币同向、价差 ≤0.5R、30 分钟内、已有持仓/挂单 → 跳过）。 */
+  nearDuplicateGuard?: boolean;
+
+  /** open 专用：DCA/加仓语义，豁免近似重复拦截（仍走加仓逻辑）。 */
+  allowAddPosition?: boolean;
+
+  /**
+   * close 专用：部分平仓时不要撤销该仓位的 SL/TP 保护单，
+   * 避免剩余仓位裸奔（NoStopLossMonitor 会全平剩余仓位）。
+   */
+  keepPartialProtections?: boolean;
+
   raw: any;
 }
 

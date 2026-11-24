@@ -1,5 +1,6 @@
 import * as crypto from 'crypto';
 import { DiscordMessage, ParsedStrategy } from './types';
+import { isRunnerLeftIntent, resolveRiskMultiplierFromText } from './RaizexbtRiskRules';
 
 // ─── Chinese Stripping ──────────────────────────────────────────────────
 
@@ -116,35 +117,8 @@ export function normalizeStopLossValue(value: unknown): number | 'breakeven' | n
 }
 
 export function resolveRiskMultiplier(rawMessage: any): number | undefined {
-    const text = extractEnglishText(String(rawMessage?.content || '')).toLowerCase();
-    if (!text) return undefined;
-
-    if (/\blow\s+risk\b|\breduced\s+risk\b/.test(text)) return 0.5;
-    if (/\bquarter\s+size\b/.test(text)) return 0.25;
-    if (/\bhalf\s+size\b/.test(text)) return 0.5;
-    if (/\bfull\s+size\b/.test(text)) return 1.0;
-
-    const rMatch = text.match(/\b(0?\.\d+|[12](?:\.0+)?)\s*r\b/);
-    if (rMatch && !/\b(up|rr|profit|gain|payed|paid|already)\b/.test(text)) {
-        const value = Number.parseFloat(rMatch[1]);
-        if (Number.isFinite(value) && value > 0 && value <= 2) {
-            return value;
-        }
-    }
-
-    const percentMatch = text.match(/\b(0?\.\d+|[12](?:\.0+)?)\s*%/);
-    if (!percentMatch) return undefined;
-
-    const value = Number.parseFloat(percentMatch[1]);
-    if (!Number.isFinite(value)) return undefined;
-
-    const likelySizingContext =
-        /\b(longed|shorted|long|short|entry|entered|risk|risked|scalp|trying|low risk|half size|quarter size|full size)\b/.test(text) &&
-        !/\b(target|move|pump|dump|dropped|gain|profit|out|partial|tp)\b/.test(text);
-
-    if (!likelySizingContext) return undefined;
-    if (value > 0 && value <= 2) return value;
-    return undefined;
+    const text = extractEnglishText(String(rawMessage?.content || ''));
+    return resolveRiskMultiplierFromText(text);
 }
 
 // ─── Management Context ─────────────────────────────────────────────────
@@ -192,7 +166,7 @@ export function analyzeManagementContext(rawMessage: any): ManagementContext {
     const hasPartialWord = /\b(partialed|partials?|trim|trimmed|out|runner|runners|some\s+off|scale(?:d)?\s+out)\b/.test(englishText);
     const hasCloseVerb = /\b(close|closing|closed|exit|exiting|stopped|stopped out|stop(ped)? out|trim|partialed|partials?|out|some\s+off|scale(?:d)?\s+out)\b/.test(englishText);
     const explicitClosePercentage = extractClosePercentageFromText(englishText);
-    const isExplicitFullClose = /\b(close all|fully closed|full close|full closed|closing full|closed full|full tp|all out|stopped out|stop(ped)? out|100%)\b/.test(englishText);
+    const isExplicitFullClose = /\b(close all|fully closed|full close|full closed|closing full|closed full|all out|stopped out|stop(ped)? out|100%)\b/.test(englishText);
     const partialClosePercentage = resolvePartialClosePercentage(englishText, explicitClosePercentage);
     return {
         englishText,
@@ -221,6 +195,7 @@ export function extractClosePercentageFromText(text: string, allowSizingHints: b
 
 export function resolvePartialClosePercentage(text: string, explicitClosePercentage?: number): number | undefined {
     if (typeof explicitClosePercentage === 'number') return explicitClosePercentage;
+    if (isRunnerLeftIntent(text)) return 80;
     if (!/\b(partialed|partials?|trim|trimmed|out|runner|runners|some\s+off|scale(?:d)?\s+out)\b/.test(text)) return undefined;
     if (/\b(major|most|mostly)\s+(partials?|out)\b|\b(closing|closed|taking|took)\s+most\b|\bleaving\s+runners?\b/.test(text)) {
         return 80;

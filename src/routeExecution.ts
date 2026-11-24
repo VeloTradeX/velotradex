@@ -364,6 +364,53 @@ export async function executeRouteForStrategy(ctx: RouteExecutionContext) {
           };
         }
 
+        // --- 第三层：近似重复开仓拦截（仅当解析器显式设置 nearDuplicateGuard 时生效）---
+        // DCA/加仓语义（allowAddPosition）豁免该检查，仍走加仓逻辑。
+        if (routeParsed.action === 'open' && routeParsed.nearDuplicateGuard && !routeParsed.allowAddPosition) {
+          const near = await strategyDedupService.checkNearDuplicate({
+            exchangeInstanceId,
+            routeId,
+            symbol: routeParsed.symbol,
+            side: routeParsed.side || 'unknown',
+            entryPrice: routeParsed.entryPrice,
+            stopLoss: routeParsed.stopLoss,
+          });
+          debugOrder('near-duplicate open guard checked %o', {
+            strategyId: strategy.id,
+            routeId,
+            exchangeInstanceId,
+            isNearDuplicate: near.isNearDuplicate,
+            existingOrderId: near.existingOrderId,
+          });
+          if (near.isNearDuplicate) {
+            strategy.status = 'filtered';
+            try {
+              await strategy.save();
+            } catch (e: any) {
+              logger.warn(routeLogMessage(routeName, 'Failed to save filtered strategy status'), formatError(e, { routeName, exchangeInstanceId, strategyId: strategy.id }));
+            }
+            await auditService.log(strategy.id, 'STRATEGY_NEAR_DUPLICATE_SKIPPED', {
+              routeId,
+              exchangeInstanceId,
+              symbol: routeParsed.symbol,
+              side: routeParsed.side || 'unknown',
+              entryPrice: routeParsed.entryPrice,
+              stopLoss: routeParsed.stopLoss,
+              duplicateOrderId: near.existingOrderId,
+              duplicateStrategyId: near.existingStrategyId,
+              existingEntryPrice: near.existingEntryPrice,
+            }, undefined, undefined, exchangeInstanceId, routeId);
+            return {
+              routeId,
+              exchangeInstanceId,
+              exchangeName,
+              status: 'filtered',
+              reason: 'near_duplicate_strategy',
+              duplicateOrderId: near.existingOrderId,
+            };
+          }
+        }
+
         // Execute single strategy
         const orderResult = await tradeExecutor.execute(routeParsed, riskConfig, source, strategy.id, exchangeInstanceId, routeId);
         debugOrder('trade executor returned %o', {

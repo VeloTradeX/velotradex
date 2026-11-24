@@ -21,6 +21,12 @@ export interface LLMResult {
     riskMultiplier?: number;
     confidence?: number;
     reasoning?: string;
+    // Deterministic channel rules filled by RaizexbtParser (not by the LLM).
+    riskResize?: boolean;
+    planRMultiple?: number;
+    planClosePercentage?: number;
+    breakevenMode?: 'protect' | 'exit_at_entry';
+    isAddPosition?: boolean;
     // Filled by the reply-chain resolver, not by the LLM.
     referencedSymbol?: string | null;
     replyStrategyId?: number | null;
@@ -44,6 +50,16 @@ export const SYSTEM_PROMPT = [
     'When TP shorthand message has no explicit symbol, use <positions> and chart direction/price levels to map to the most likely active position symbol.',
     'For TP1/TP2 shorthand without explicit full-close wording, closePercentage may be omitted so execution can use configured tpDistribution.',
     'Only use closePercentage=100 when text explicitly indicates full close (e.g., "close all", "fully closed", "all out", "100%").',
+    'Expectation wording is NOT an instruction: "full tp soon", "will tp", "might nuke", "going to close", "stops alr flat" (a status statement) must return action:ignore, never action:close.',
+    'Risk sizing of the position (riskMultiplier) follows this channel convention exactly: "0.5R" / ".5R" / "half R" / "half size" / "risky" / "high risk" / "high-risk" / "low risk" / "reduced risk" = 0.5 (a risky trade is taken with SMALLER size, never larger). "0.25R" / "quarter size" = 0.25. A range such as "0.3-0.5R" or "0.2-0.5R" = take the LOWER bound (0.3 / 0.2). "1R" / "1R risk" / "normal" / "full size" = 1.0. NEVER set 2.0 for high risk. RR results ("2R+", "2.5RR+", "3RR+", "-0.5R", "took 0.5R") are performance reports, never position sizing.',
+    'A bare risk-size note (e.g. "0.5R", ".5R", "Risk 0.5R", "USE 0.5R ON THIS TRADE", "low risk", "risky", "Low risk> 0.3-0.5R only") is NOT an open signal. If it replies to an existing open signal/position, output action:update with riskMultiplier set and no entry/stop/target changes. If it stands alone without a reply chain, output action:ignore but still fill riskMultiplier.',
+    'A bare risk-size note together with an annotated chart that shows a complete setup, when there is no active position for that symbol, IS the open signal: output action:open with riskMultiplier from the note (e.g. "0.3R" + complete chart = action:open, riskMultiplier 0.3).',
+    'Partial exits must also protect the remaining position: "partials", "partial", "TP1 here", "Tp1", "scale out", "some off", "trim" = action:close with closePercentage 50 (or the stated percentage) AND include stopLoss:"breakeven" so the stop moves to breakeven after the partial close. Never use closePercentage 100 for these.',
+    '"Runner left" / "only a runner left" / "left a runner" = action:close with closePercentage 80 and stopLoss:"breakeven".',
+    'If text describes a breakeven exit ("will close if we get breakeven", "close at entry", "exit at be"), output action:update with stopLoss:"breakeven" (not action:close, not action:open). The execution layer handles loss-side positions with a reduce-only limit exit at the entry price.',
+    'Cancelling a pending entry: "no limits for now", "not setting any limits", "remove the limit", "cancel this entry", "cutting this entry" => action:cancel when <origin_signal> order_status is INIT/PENDING; if the entry already filled use action:close for "cutting/cancel this entry" wording and action:ignore for "no limits" wording.',
+    '"Can manage your position after 1R accordingly" / "manage after 1R" is a management plan for the reply target: output action:update (no stop change); the execution layer adds a 50% take-profit at 1R and moves the stop to breakeven when it fills.',
+    'Chart-signal override requires a COMPLETE setup: a drawn entry boundary PLUS a readable stop-loss PLUS a take-profit level. If the stop-loss cannot be read reliably, do NOT output action:open (return action:ignore with low confidence) - a chart without a stop is not an executable signal.',
     'If the message is setting a TP price/level for an existing position (not TP1/TP2 shorthand), output action:close and put that exit price into closePrice.',
     'If a TP message includes a partial-close ratio such as 25%, 50%, or 90%, include it in closePercentage.',
     'If the message moves the stop loss to breakeven / break-even / B/E / entry ("stops be", "stops entry", "stop to entry", "sl to entry", "stops at entry"), output action:update and stopLoss:"breakeven". This is management of an existing position even when an annotated chart is attached - never output action:open for it.',
@@ -112,7 +128,7 @@ export const VISION_RULES = `<rules>
 30. If that TP message also says to close a portion (for example 90%), include closePercentage with that number.
 31. If the message moves the stop-loss to breakeven / break-even / B/E / entry ("stops be", "stops entry", "stop to entry", "sl to entry", "stops at entry"), output action:update with stopLoss:"breakeven". This is management of an existing position even when an annotated chart is attached - do NOT output action:open for it.
 32. If the message says close/exit at breakeven, output action:close instead of update.
-33. Risk multiplier: If text mentions risk level like "0.5R", "0.5 R", "half R", "low risk", "reduced risk", extract riskMultiplier. "0.5R" or "half R" or "low risk" = 0.5. "1R" or "normal" = 1.0. "2R" or "high risk" = 2.0. If not mentioned, omit riskMultiplier (defaults to 1.0).
+33. Risk multiplier: The trader SHRINKS size on risky trades. "0.5R", ".5R", "half R", "half size", "risky", "high risk", "high-risk", "low risk", "reduced risk" = 0.5; "0.25R" / "quarter size" = 0.25; a range "0.3-0.5R" / "0.2-0.5R" = the LOWER bound (0.3 / 0.2); "1R", "1R risk", "normal", "full size" = 1.0. NEVER output 2.0 for high risk. RR results ("2R+", "2.5RR+", "3RR+", "-0.5R") are reports, not sizing. If not mentioned, omit riskMultiplier (defaults to 1.0).
 34. CHART-SIGNAL OVERRIDE (this channel only): the trader often posts the entry chart itself as the signal, with only a symbol tag ($BTC, $ETH, €ETH), a role mention, empty text, a one-word label like "scalp", or neutral commentary. When the attached chart shows a complete, ready-to-execute position setup (a drawn entry boundary PLUS stop-loss PLUS take-profit levels, usually a TradingView risk/reward box), output action:open instead of ignore.
 35. The override does NOT apply when the text is: a plan or watch or conditional message (watching, looking for, plan, idea, "if ...", "when ...", "not setting limits", "for now", "will try", "waiting"), an RR or performance report, a greeting (gm/gn), "opened elsewhere/history/recap", or any close/update/cancel/TP/SL/breakeven/stop-to-entry ("stops entry", "sl to entry", "move stop to entry")/partials management. These keep their normal rules (usually action:ignore, action:close or action:update). When in doubt, do NOT apply the override.
 36. Override side: ignore any crowd bias in the commentary (e.g. "They all longing"); take side strictly from the chart. Green TP zone above the entry boundary with gray SL zone below = side:buy. Red TP zone below the entry boundary with gray SL zone above = side:sell.
@@ -132,6 +148,15 @@ export const VISION_RULES = `<rules>
 46. Partial-exit intent outranks RR-report detection. "partials", "taking partials", "scale out", "some off", "trim" = action:close. If no percentage is stated, set closePercentage:50.
 47. If the same message also says "SL entry" / "stops to entry" / "breakeven", keep action:close and include stopLoss:"breakeven" in the same JSON so both the partial close and the breakeven stop are executed.
 48. An RR figure is a report only when it stands alone; paired with an action (partials/cut/close/SL entry/TP) it is an instruction.
+49. A bare risk-size note ("0.5R", ".5R", "Risk 0.5R", "USE 0.5R ON THIS TRADE", "low risk", "risky", "Low risk> 0.3-0.5R only") is not an open signal. Reply to an existing signal => action:update with riskMultiplier only. Standalone => action:ignore with riskMultiplier filled.
+50. A bare risk-size note WITH a complete annotated chart (entry + stop-loss + take-profit) and no active position for that symbol => action:open with that riskMultiplier (e.g. "0.3R" + complete chart = open, riskMultiplier 0.3).
+51. Partial exits need protection for the rest: "partials", "TP1 here", "Tp1", "scale out", "some off", "trim" => action:close, closePercentage 50 (or stated %), AND stopLoss:"breakeven". Never closePercentage 100 for these.
+52. "Runner left" / "only a runner left" => action:close, closePercentage 80, stopLoss:"breakeven".
+53. Breakeven-exit wording ("will close if we get breakeven", "close at entry", "exit at be") => action:update with stopLoss:"breakeven" (execution uses a reduce-only limit exit at the entry price when the position is in loss).
+54. Cancelling a pending entry: "no limits for now", "not setting any limits", "remove the limit", "cancel this entry", "cutting this entry" => action:cancel when <origin_signal> order_status is INIT/PENDING; if already filled use action:close for "cutting/cancel this entry" and action:ignore for "no limits".
+55. Expectation/status wording ("full tp soon", "will tp", "might nuke", "stops alr flat") => action:ignore, never action:close.
+56. "Can manage your position after 1R accordingly" => action:update for the reply target (the execution layer adds a 50% TP at 1R and moves the stop to breakeven on fill).
+57. Chart-signal override requires entry boundary + readable stop-loss + take-profit. If the stop-loss is not readable, do not open (action:ignore).
 </rules>`;
 
 export const TEXT_RULES = `<rules>
@@ -156,7 +181,7 @@ export const TEXT_RULES = `<rules>
 19. If that TP message contains a partial-close ratio (e.g. 25%, 50%, 90%), include it in closePercentage.
 20. If the message moves the stop-loss to breakeven / break-even / B/E / entry ("stops be", "stops entry", "stop to entry", "sl to entry", "stops at entry"), output action:update with stopLoss:"breakeven".
 21. If the message says close/exit at breakeven, output action:close rather than update.
-22. Risk multiplier: If text mentions risk level like "0.5R", "0.5 R", "half R", "low risk", "reduced risk", extract riskMultiplier. "0.5R" or "half R" or "low risk" = 0.5. "1R" or "normal" = 1.0. "2R" or "high risk" = 2.0. If not mentioned, omit riskMultiplier (defaults to 1.0).
+22. Risk multiplier: The trader SHRINKS size on risky trades. "0.5R", ".5R", "half R", "half size", "risky", "high risk", "high-risk", "low risk", "reduced risk" = 0.5; "0.3-0.5R" range = 0.3 (lower bound); "1R", "1R risk", "normal", "full size" = 1.0. NEVER output 2.0 for high risk. RR results ("2R+", "-0.5R") are reports, not sizing. If not mentioned, omit riskMultiplier (defaults to 1.0).
 23. Symbol typos: treat €, ¥, £ before a ticker as $ (€ETH = ETH_USDT).
 24. DCA / add-to-position ("dca", "dca my entry", "adding here", "averaging in") = action:open to increase the position.
    - symbol and side: use the active position from <positions>; if <positions> is empty, use the symbol and side of the most recent explicit entry in <context>.
@@ -170,6 +195,12 @@ export const TEXT_RULES = `<rules>
 29. Partial-exit intent outranks RR-report detection. "partials", "taking partials", "scale out", "some off", "trim" = action:close. If no percentage is stated, set closePercentage:50.
 30. If the same message also says "SL entry" / "stops to entry" / "breakeven", keep action:close and include stopLoss:"breakeven" in the same JSON.
 31. An RR figure is a report only when it stands alone; paired with an action (partials/cut/close/SL entry/TP) it is an instruction, not a report.
+32. A bare risk-size note ("0.5R", ".5R", "Risk 0.5R", "USE 0.5R ON THIS TRADE", "low risk", "risky", "Low risk> 0.3-0.5R only") is not an open signal. Reply to an existing signal => action:update with riskMultiplier only (no entry/stop/target change). Standalone => action:ignore with riskMultiplier filled.
+33. Partial exits need protection for the rest: "partials", "TP1 here", "Tp1", "scale out", "some off", "trim" => action:close, closePercentage 50 (or stated %), AND stopLoss:"breakeven". "Runner left" => closePercentage 80 + stopLoss:"breakeven". Never 100 for these.
+34. Breakeven-exit wording ("will close if we get breakeven", "close at entry", "exit at be") => action:update with stopLoss:"breakeven".
+35. Cancelling a pending entry: "no limits for now", "not setting any limits", "remove the limit", "cancel this entry", "cutting this entry" => action:cancel when <origin_signal> order_status is INIT/PENDING; if already filled use action:close for "cutting/cancel this entry" and action:ignore for "no limits".
+36. Expectation/status wording ("full tp soon", "will tp", "might nuke", "stops alr flat") => action:ignore.
+37. "Can manage your position after 1R accordingly" => action:update for the reply target (execution adds a 50% TP at 1R and moves stop to breakeven on fill).
 </rules>`;
 
 export const OUTPUT_FORMAT = `<output_format>
@@ -183,7 +214,7 @@ export const OUTPUT_FORMAT = `<output_format>
   "stopLoss": number_or_"breakeven"_or_null,
   "targets": [number] or [] (for open/update include all visible TP prices, ascending),
   "orderType": "market|limit",
-  "riskMultiplier": number_or_null (0.5 for low risk, 1.0 for normal, 2.0 for high risk; omit if not mentioned),
+  "riskMultiplier": number_or_null (0.5 for risky/high-risk/low-risk/half size, 0.3 for "0.3-0.5R" range, 0.25 for quarter size, 1.0 for normal/1R risk; NEVER 2.0 for high risk; omit if not mentioned),
   "confidence": 0.0-1.0,
   "reasoning": "brief explanation"
 }

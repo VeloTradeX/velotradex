@@ -724,7 +724,10 @@ describe('TradeExecutor pre-open hard validation', () => {
       'sell', // short position → side is position direction
       '60200',
       't-sl-pos-BTC_USDT-buy', // close-side convention (short position → closeSide=buy)
-      '327', // uses order tracked amount (327) since targetOrder exists
+      // reduce-only SL 数量按「订单成交量 与 当前持仓」取小值：该用例模拟
+      // WSEventRouter 提前把订单标记 CLOSED，DB 成交量 327 已与实际持仓 164 不一致，
+      // 用 327 会被交易所按「reduce-only 数量超过持仓」拒绝。
+      '164',
     );
 
     // DB was synced: activeStopLossId and currentSl updated on the CLOSED order

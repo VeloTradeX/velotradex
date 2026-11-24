@@ -409,8 +409,39 @@ export class ClosePositionService {
     // For TP-triggered closes: skip cancellation entirely — existing TP protection orders
     // should remain active for the remaining position; the SL will be moved to breakeven
     // by GateIOOrderPersistenceHandler when it detects the TP-prefixed order fill.
+    //
+    // For partial closes with parsed.keepPartialProtections=true (e.g. risk-resize
+    // signals that reduce size but keep managing the remainder): also keep the
+    // existing SL/TP protections, otherwise the remaining position runs naked and
+    // NoStopLossMonitor would force-close it.
     const pm = this.services.protectionContext.getProtectionManager(exchangeInstanceId);
-    if (!tpOrderText) {
+    const protectionQtyEpsilon = this.capabilities.protectionQtyEpsilon ?? 1e-8;
+    const isPartialClose = finalCloseAmount < positionAbs - protectionQtyEpsilon;
+    if (tpOrderText) {
+        debugOrderClose('TP close — skipping protection cancellation, SL will move to BE on fill %o', {
+            strategyId, tpStep, tpOrderText,
+        });
+    } else if (
+        parsed.keepPartialProtections === true &&
+        // 部分平仓：剩余仓位必须继续受 SL/TP 保护；
+        // 全量限价平仓（closePrice 存在，如「回到入场价就平仓」）：订单可能长时间挂单不成交，
+        // 期间同样必须保留原止损，否则价格反向时仓位完全裸奔。
+        (isPartialClose || parsed.closePrice != null)
+    ) {
+        logger.warn(
+            `[ClosePositionService] keepPartialProtections=true close for ${parsed.symbol}: ` +
+            `keeping SL/TP protections while closing ${formattedAmount} of position ${positionAbs}`,
+            { strategyId, symbol: parsed.symbol, finalCloseAmount, positionAbs, scopeMode, closePrice: parsed.closePrice ?? null },
+        );
+        debugOrderClose('keep-protections close — skipping protection cancellation %o', {
+            strategyId,
+            exchangeInstanceId,
+            symbol: parsed.symbol,
+            finalCloseAmount,
+            positionAbs,
+            scopeMode,
+        });
+    } else {
         for (const order of scopedOrders) {
             try {
                 await pm.cancelProtections(
@@ -422,10 +453,6 @@ export class ClosePositionService {
                 logger.warn(`Failed to cancel protections for order ${order.id}`, formatError(err));
             }
         }
-    } else {
-        debugOrderClose('TP close — skipping protection cancellation, SL will move to BE on fill %o', {
-            strategyId, tpStep, tpOrderText,
-        });
     }
 
     // ── syncCfdPrice：平仓价格基准切换为 CFD 市场实时价 ──
