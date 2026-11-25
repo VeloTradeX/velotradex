@@ -84,6 +84,31 @@ describe('RaizexbtParser — half-R rule & deterministic management overrides', 
         expect(resize![0].side).toBe('buy');
     });
 
+    it('pairs a risk note up to 2m30s after the open signal', async () => {
+        jest.spyOn(aiParserService, 'analyzeRaw').mockResolvedValue(llm({
+            action: 'open', symbol: 'BTC_USDT', side: 'buy',
+            entryPrice: 63108.1, stopLoss: 62562.1, targets: [64612.6],
+            orderType: 'limit', confidence: 0.75,
+        }));
+        await parser.parse(message('m1', 'Risky long\n\n做多\n--------------', base));
+        const resize = await parser.parse(message('m2', '0.5R\n\n0.5R\n--------------', base + 149_000));
+        expect(resize).not.toBeNull();
+        expect(resize![0].action).toBe('update');
+        expect(resize![0].riskResize).toBe(true);
+        expect(resize![0].riskMultiplier).toBe(0.5);
+    });
+
+    it('does not pair a risk note more than 2m30s after the open signal', async () => {
+        jest.spyOn(aiParserService, 'analyzeRaw').mockResolvedValue(llm({
+            action: 'open', symbol: 'BTC_USDT', side: 'buy',
+            entryPrice: 63108.1, stopLoss: 62562.1, targets: [64612.6],
+            orderType: 'limit', confidence: 0.75,
+        }));
+        await parser.parse(message('m1', 'Risky long\n\n做多\n--------------', base));
+        const resize = await parser.parse(message('m2', '0.5R\n\n0.5R\n--------------', base + 151_000));
+        expect(resize).toBeNull();
+    });
+
     it('defers a bare risk note and applies it to the next open signal', async () => {
         jest.spyOn(aiParserService, 'analyzeRaw').mockResolvedValue(llm({
             action: 'open',

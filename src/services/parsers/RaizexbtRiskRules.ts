@@ -12,7 +12,8 @@
  */
 
 /** 半 R 规则的时间窗口：风险便签与开仓信号互相匹配的最大间隔。 */
-export const RISK_NOTE_WINDOW_MS = 120_000;
+// 半 R 便签与开仓信号的前后配对窗口：2 分 30 秒（用户口径）。
+export const RISK_NOTE_WINDOW_MS = 150_000;
 
 /** 去掉角色提及、markdown、emoji 等噪音，统一小写与空白。 */
 export function normalizeRuleText(text: string): string {

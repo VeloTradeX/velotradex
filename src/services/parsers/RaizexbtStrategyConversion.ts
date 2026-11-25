@@ -288,7 +288,17 @@ export function resolveEffectiveRiskMultiplier(result: LLMResult, rawMessage: an
         ? result.riskMultiplier
         : undefined;
     const fromFallback = resolveRiskMultiplier(rawMessage);
-    const resolved = fromText ?? fromResult ?? fromFallback;
+    // 防御 LLM context 泄漏：模型会把 <context> 里几分钟/几小时前的 "Low risk" 便签
+    // 套到新开仓上（真实案例：01:21 的 Low risk 一直被 05:58/07:46 的开仓复用）。
+    // 只接受「本条消息文本自带风险词」或「解析器确定性半R规则写入」的 riskMultiplier。
+    const fromDeterministic = result.riskMultiplierSource === 'deterministic' ? fromResult : undefined;
+    const resolved = fromText ?? fromDeterministic ?? fromFallback;
+    if (resolved == null && fromResult != null && fromResult < 1) {
+        logger.warn('Raizexbt ignored LLM riskMultiplier not grounded in current message (possible context leak)', {
+            llmRiskMultiplier: fromResult,
+            text: text.slice(0, 120),
+        });
+    }
     if (resolved == null) return undefined;
     if (resolved > 1) {
         logger.info('Raizexbt riskMultiplier > 1R clamped to 1R', { fromText, fromResult, resolved });

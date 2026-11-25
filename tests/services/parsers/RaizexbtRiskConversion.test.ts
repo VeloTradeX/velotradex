@@ -49,8 +49,31 @@ describe('RaizexbtStrategyConversion — risk sizing', () => {
         expect(strategies).not.toBeNull();
     });
 
-    it('clamps any >1R LLM multiplier to 1R (the channel never sizes up)', () => {
-        expect(resolveEffectiveRiskMultiplier(result({ riskMultiplier: 2 }), message('$BTC'))).toBe(1);
+    it('clamps a deterministic >1R multiplier to 1R (the channel never sizes up)', () => {
+        expect(resolveEffectiveRiskMultiplier(
+            result({ riskMultiplier: 2, riskMultiplierSource: 'deterministic' }),
+            message('$BTC'),
+        )).toBe(1);
+    });
+
+    it('honours a riskMultiplier written by the deterministic half-R rule', () => {
+        expect(resolveEffectiveRiskMultiplier(
+            result({ riskMultiplier: 0.5, riskMultiplierSource: 'deterministic' }),
+            message('$BTC LONGED'),
+        )).toBe(0.5);
+    });
+
+    it('honours a riskMultiplier grounded in the current message text', () => {
+        expect(resolveEffectiveRiskMultiplier(result({ riskMultiplier: 0.5 }), message('low risk'))).toBe(0.5);
+    });
+
+    it('ignores an LLM riskMultiplier inherited from stale <context> risk notes', () => {
+        const llm = result({ riskMultiplier: 0.5 });
+        const msg = message('$BTC LONGED');
+        // 真实事故：01:21 的 Low risk 被 07:46 的新开仓复用，这里必须忽略。
+        expect(resolveEffectiveRiskMultiplier(llm, msg)).toBeUndefined();
+        const strategies = convertToStrategies(llm, msg, 'test:');
+        expect(strategies![0].riskMultiplier).toBeUndefined();
     });
 
     it('builds a riskResize update from a bare half-R note', () => {
@@ -63,6 +86,24 @@ describe('RaizexbtStrategyConversion — risk sizing', () => {
         expect(strategies![0].action).toBe('update');
         expect(strategies![0].riskResize).toBe(true);
         expect(strategies![0].riskMultiplier).toBe(0.5);
+    });
+
+    it('does not apply the leaked 01:21 "Low risk" to the 07:46 LIVE "LONGED" signal (production incident)', () => {
+        // 线上 2026-11-25 07:46 的真实 LLM 输出（riskMultiplier 来自 context，非本条消息）
+        const llm = result({
+            action: 'open',
+            side: 'buy',
+            entryPrice: 59783.5,
+            stopLoss: 59419.4,
+            targets: [60930],
+            riskMultiplier: 0.5,
+            confidence: 0.85,
+            reasoning: "'Low risk' context note maps to 0.5 sizing.",
+        });
+        const strategies = convertToStrategies(llm, message('$BTC LONGED\n\n$BTC 做多\n--------------'), 'test:');
+        expect(strategies).toHaveLength(1);
+        expect(strategies![0].action).toBe('open');
+        expect(strategies![0].riskMultiplier).toBeUndefined();
     });
 
     it('forwards the 1R management plan to the executor', () => {

@@ -255,13 +255,14 @@ export class RaizexbtParser implements IStrategyParser {
                 if (!hasImageAttachment) {
                     const target = this.resolveRiskNoteTarget(replyContext, messageTs);
                     if (target) {
-                        // 有明确目标（引用链 / 120 秒内的上一条开仓）→ 直接生成「缩放到目标 R」
+                        // 有明确目标（引用链 / 150 秒内的上一条开仓）→ 直接生成「缩放到目标 R」
                         // 的管理策略，不调用 LLM（避免 LLM 把它误判成新开仓）。
                         llmResult = {
                             action: 'update',
                             symbol: target.symbol,
                             side: target.side,
                             riskMultiplier: riskNote.multiplier,
+                            riskMultiplierSource: 'deterministic',
                             riskResize: true,
                             confidence: 0.99,
                             reasoning: `Half-R rule: resize position/order to ${riskNote.multiplier}R (${riskNote.label}).`,
@@ -279,7 +280,7 @@ export class RaizexbtParser implements IStrategyParser {
                             multiplier: riskNote.multiplier,
                         });
                     } else {
-                        // 没有近邻目标 → 暂存给下一条开仓信号（窗口 120 秒）。
+                        // 没有近邻目标 → 暂存给下一条开仓信号（窗口 150 秒）。
                         // 注意：具体数字便签（0.3R / 0.3-0.5R）优先于泛化措辞（low risk）；
                         // 例如 "Low risk> 0.3-0.5R only" 紧跟 "Low risk again" 时，应保留 0.3。
                         const genericLabels = new Set(['risk-word']);
@@ -1024,6 +1025,7 @@ export class RaizexbtParser implements IStrategyParser {
         // (a) 风险便签 + 图表：以该风险倍数开仓（如 "0.3R" + 完整图表）。
         if (riskNote && hasImage && next.action === 'open') {
             next.riskMultiplier = riskNote.multiplier;
+            next.riskMultiplierSource = 'deterministic';
             addStep({
                 name: 'deterministic_override',
                 rule: 'risk_note_with_chart',
@@ -1036,6 +1038,7 @@ export class RaizexbtParser implements IStrategyParser {
             const age = Math.abs(messageTs - this.pendingRiskNote.ts);
             if (age <= RISK_NOTE_WINDOW_MS) {
                 next.riskMultiplier = this.pendingRiskNote.multiplier;
+                next.riskMultiplierSource = 'deterministic';
                 addStep({
                     name: 'deterministic_override',
                     rule: 'pending_half_r_applied',

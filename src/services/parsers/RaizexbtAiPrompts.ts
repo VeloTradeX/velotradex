@@ -19,6 +19,8 @@ export interface LLMResult {
     targets?: Array<number | string>;
     orderType?: 'market' | 'limit';
     riskMultiplier?: number;
+    /** 确定性半R规则写入的 riskMultiplier（非 LLM 推断），用于防止 context 泄漏。 */
+    riskMultiplierSource?: 'deterministic';
     confidence?: number;
     reasoning?: string;
     // Deterministic channel rules filled by RaizexbtParser (not by the LLM).
@@ -157,6 +159,7 @@ export const VISION_RULES = `<rules>
 55. Expectation/status wording ("full tp soon", "will tp", "might nuke", "stops alr flat") => action:ignore, never action:close.
 56. "Can manage your position after 1R accordingly" => action:update for the reply target (the execution layer adds a 50% TP at 1R and moves the stop to breakeven on fill).
 57. Chart-signal override requires entry boundary + readable stop-loss + take-profit. If the stop-loss is not readable, do not open (action:ignore).
+58. Risk sizing is time-bound and single-use: a standalone risk-size note ("0.5R", "low risk", "risky", "half size"...) only sizes the open signal it replies to, or the open signal immediately before/after it within 150 seconds, and that note applies exactly once. NEVER take a riskMultiplier from <context>: an older "Low risk"/"0.5R" in <context> is stale and must NOT size a new open. If the current message's own text does not mention risk size, omit riskMultiplier (defaults to 1.0).
 </rules>`;
 
 export const TEXT_RULES = `<rules>
@@ -201,6 +204,7 @@ export const TEXT_RULES = `<rules>
 35. Cancelling a pending entry: "no limits for now", "not setting any limits", "remove the limit", "cancel this entry", "cutting this entry" => action:cancel when <origin_signal> order_status is INIT/PENDING; if already filled use action:close for "cutting/cancel this entry" and action:ignore for "no limits".
 36. Expectation/status wording ("full tp soon", "will tp", "might nuke", "stops alr flat") => action:ignore.
 37. "Can manage your position after 1R accordingly" => action:update for the reply target (execution adds a 50% TP at 1R and moves stop to breakeven on fill).
+38. Risk sizing is time-bound and single-use: a risk-size note ("0.5R", "low risk", "risky", "half size"...) only sizes the open signal it replies to, or the open signal immediately before/after it within 150 seconds, exactly once. NEVER take a riskMultiplier from <context>: stale "Low risk"/"0.5R" history must NOT size a new open. If the current message text does not mention risk size, omit riskMultiplier.
 </rules>`;
 
 export const OUTPUT_FORMAT = `<output_format>
