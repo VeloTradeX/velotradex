@@ -84,6 +84,20 @@ describe('RaizexbtParser — half-R rule & deterministic management overrides', 
         expect(resize![0].side).toBe('buy');
     });
 
+    it('keeps a valid open signal when the LLM omits confidence (05:58 production incident)', async () => {
+        jest.spyOn(aiParserService, 'analyzeRaw').mockResolvedValue(llm({
+            action: 'open', symbol: 'BTC_USDT', side: 'buy',
+            entryPrice: 59718.1, stopLoss: 59222.9, targets: [60856.8],
+            orderType: 'limit', riskMultiplier: 0.5,
+            // 注意：故意不提供 confidence（线上真实漏发形态）
+        }));
+        const strategies = await parser.parse(message('m-noconf', '$BTC LONGED\n\n做多\n--------------', base));
+        expect(strategies).not.toBeNull();
+        expect(strategies![0].action).toBe('open');
+        // confidence 缺失已兜底为 0.5；但这个 0.5R 来自 context 泄漏，风险守卫必须忽略它
+        expect(strategies![0].riskMultiplier).toBeUndefined();
+    });
+
     it('pairs a risk note up to 2m30s after the open signal', async () => {
         jest.spyOn(aiParserService, 'analyzeRaw').mockResolvedValue(llm({
             action: 'open', symbol: 'BTC_USDT', side: 'buy',

@@ -87,6 +87,7 @@ export const SYSTEM_PROMPT = [
     'Partial-exit intent has higher priority than RR-report detection. "partials", "partial", "taking partials", "took partials", "scale out", "some off", "taking some off", "trim" = action:close. If no percentage is stated, set closePercentage:50.',
     'If the same message also says "SL entry", "stops to entry", "stops at entry", "SL to BE" or "breakeven", keep action:close and include stopLoss:"breakeven" in the same JSON. Both the partial close and the breakeven stop must be applied - do not drop either.',
     'An RR figure ("1.8R+", "2.5RR+", "0.5R") is a report only when it stands alone or is part of a monthly recap/history list with no action verb. When it is paired with an action ("partials", "cut", "close", "SL entry", "TP"), it is an instruction: act on the action instead of returning action:ignore.',
+    'Every response MUST include a numeric "confidence" field between 0.0 and 1.0. Confidence is REQUIRED and must never be omitted; when unsure, return 0.5 instead of omitting the field.',
     'Output ONLY valid JSON. No markdown, no code block, no explanation.'
 ].join(' ');
 
@@ -160,6 +161,7 @@ export const VISION_RULES = `<rules>
 56. "Can manage your position after 1R accordingly" => action:update for the reply target (the execution layer adds a 50% TP at 1R and moves the stop to breakeven on fill).
 57. Chart-signal override requires entry boundary + readable stop-loss + take-profit. If the stop-loss is not readable, do not open (action:ignore).
 58. Risk sizing is time-bound and single-use: a standalone risk-size note ("0.5R", "low risk", "risky", "half size"...) only sizes the open signal it replies to, or the open signal immediately before/after it within 150 seconds, and that note applies exactly once. NEVER take a riskMultiplier from <context>: an older "Low risk"/"0.5R" in <context> is stale and must NOT size a new open. If the current message's own text does not mention risk size, omit riskMultiplier (defaults to 1.0).
+59. "confidence" is REQUIRED in every JSON response: always include a numeric confidence between 0.0 and 1.0 (use 0.5 when unsure); never omit the field.
 </rules>`;
 
 export const TEXT_RULES = `<rules>
@@ -205,6 +207,7 @@ export const TEXT_RULES = `<rules>
 36. Expectation/status wording ("full tp soon", "will tp", "might nuke", "stops alr flat") => action:ignore.
 37. "Can manage your position after 1R accordingly" => action:update for the reply target (execution adds a 50% TP at 1R and moves stop to breakeven on fill).
 38. Risk sizing is time-bound and single-use: a risk-size note ("0.5R", "low risk", "risky", "half size"...) only sizes the open signal it replies to, or the open signal immediately before/after it within 150 seconds, exactly once. NEVER take a riskMultiplier from <context>: stale "Low risk"/"0.5R" history must NOT size a new open. If the current message text does not mention risk size, omit riskMultiplier.
+39. "confidence" is REQUIRED in every JSON response: always include a numeric confidence between 0.0 and 1.0 (use 0.5 when unsure); never omit the field.
 </rules>`;
 
 export const OUTPUT_FORMAT = `<output_format>
@@ -219,7 +222,7 @@ export const OUTPUT_FORMAT = `<output_format>
   "targets": [number] or [] (for open/update include all visible TP prices, ascending),
   "orderType": "market|limit",
   "riskMultiplier": number_or_null (0.5 for risky/high-risk/low-risk/half size, 0.3 for "0.3-0.5R" range, 0.25 for quarter size, 1.0 for normal/1R risk; NEVER 2.0 for high risk; omit if not mentioned),
-  "confidence": 0.0-1.0,
+  "confidence": 0.85 (REQUIRED: always include a number between 0.0 and 1.0; never omit),
   "reasoning": "brief explanation"
 }
 </output_format>`;
@@ -316,6 +319,24 @@ export function parseResponseContent(content: string, usage: any, logPrefix: str
             if (!Number.isNaN(numericClosePercentage)) {
                 result.closePercentage = Math.max(0, Math.min(100, numericClosePercentage));
             }
+        }
+
+        // confidence 是必填契约字段：模型偶发漏发（线上 700 条 AI JSON 里出现过 1 次）时
+        // 不能当成 0 置信，否则合法信号会被转换层的 confidence<0.3 门禁直接丢弃。
+        // 缺失/非法 → 中性 0.5，并记录告警便于监控模型漏字段率。
+        const rawConfidence = (result as any).confidence;
+        const numericConfidence = typeof rawConfidence === 'number'
+            ? rawConfidence
+            : (typeof rawConfidence === 'string' && rawConfidence.trim() !== ''
+                ? Number(rawConfidence)
+                : NaN);
+        if (!Number.isFinite(numericConfidence)) {
+            logger.warn(`${logPrefix} LLM response missing/invalid confidence, defaulting to neutral 0.5`, {
+                rawConfidence,
+            });
+            result.confidence = 0.5;
+        } else {
+            result.confidence = Math.max(0, Math.min(1, numericConfidence));
         }
 
         if (usage) {
